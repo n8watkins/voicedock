@@ -73,20 +73,22 @@ const chromeShim = `
   const originalFetch = window.fetch.bind(window);
   window.fetch = async (input, init = {}) => {
     const url = typeof input === 'string' ? input : input.url;
-    if (url && url.startsWith('http://127.0.0.1:7478')) {
+    if (url && url.startsWith('http://127.0.0.1:7477')) {
       const path = new URL(url).pathname;
       const json = (body) => new Response(JSON.stringify(body), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       });
-      if (path === '/health') return json({ status: 'ok', engine: 'kokoro', version: '1.0.0', voices: kokoroVoices.length });
-      if (path === '/voices') return json({ engine: 'kokoro', voices: kokoroVoices, defaultVoice: 'af_heart' });
-      if (path === '/tts') return new Response(new Blob([], { type: 'audio/wav' }), { status: 200 });
-    }
-    if (url && url.startsWith('http://127.0.0.1:7477')) {
-      const path = new URL(url).pathname;
+      // The hub: both engines ready.
+      if (path === '/engines') {
+        return json({ api: 2, pressure: 'ok', engines: [
+          { id: 'piper', name: 'Piper', state: 'ready', installed: true, running: true, voices: voices.length, detail: `${voices.length} voices, no process while idle`, coldStart: { estimateMs: 1000 } },
+          { id: 'kokoro', name: 'Kokoro', state: 'ready', installed: true, running: true, voices: kokoroVoices.length, rssMb: 612, detail: 'Model loaded, unloads in 9 min', coldStart: { estimateMs: 3400 } },
+        ] });
+      }
+      if (path === '/engines/kokoro/voices') return json({ engine: 'kokoro', voices: kokoroVoices, defaultVoice: 'af_heart' });
       if (path === '/health') {
-        return new Response(JSON.stringify({ status: 'ok', engine: 'piper', version: '1.0.0' }), {
+        return new Response(JSON.stringify({ status: 'ok', engine: 'piper', api: 2, version: '1.0.0' }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         });

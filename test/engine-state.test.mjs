@@ -1,45 +1,80 @@
 // The one engine-state vocabulary (extension/src/shared.js).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { engineState, engineUsable, markEngineSeen, probeEngine, probeHub, STATUS_LABEL, STATUS_SHORT, voicesUrl } from '../extension/src/shared.js';
+import {
+  engineDetail, engineInstalled, engineState, engineUsable, fetchEngines, markEngineSeen, startingText,
+  STATUS_LABEL, STATUS_SHORT, unavailableReason, voicesUrl,
+} from '../extension/src/shared.js';
 
-test('engine states: ready, starting, installed but not running, not installed, checking', () => {
-  assert.equal(engineState('piper', { status: 'ok' }, null), 'ready');
-  assert.equal(engineState('kokoro', { status: 'ok', modelLoading: true }, null), 'starting');
-  assert.equal(engineState('kokoro', { status: 'ok', modelLoaded: false }, null), 'ready', 'an unloaded model is still ready');
-  assert.equal(engineState('kokoro', null, '2026-11-03T10:00:00Z'), 'stopped', 'answered before, not now');
-  assert.equal(engineState('kokoro', null, undefined), 'missing', 'never answered');
+const hubWith = (engines, api = 2) => ({ reachable: true, api, engines: Object.fromEntries(engines.map((e) => [e.id, e])) });
+const DOWN = { reachable: false, api: 0, engines: {} };
+
+test('the hub decides: ready, starting, standby, not installed', () => {
+  const hub = hubWith([
+    { id: 'piper', state: 'ready', installed: true },
+    { id: 'kokoro', state: 'idle', installed: true, coldStart: { estimateMs: 3400 } },
+  ]);
+  assert.equal(engineState('piper', hub, null), 'ready');
+  assert.equal(engineState('kokoro', hub, null), 'standby', 'set up, not running: starts when you read');
+  assert.equal(engineState('kokoro', hubWith([{ id: 'kokoro', state: 'starting' }]), null), 'starting');
+  assert.equal(engineState('kokoro', hubWith([{ id: 'kokoro', state: 'not-installed' }]), 'x'), 'missing', 'the hub knows better than memory');
+  assert.equal(engineState('kokoro', hubWith([{ id: 'kokoro', state: 'needs-setup' }]), null), 'missing');
+  assert.equal(engineState('kokoro', hubWith([{ id: 'kokoro', state: 'failed' }]), null), 'stopped');
+  assert.equal(engineState('kokoro', hubWith([{ id: 'kokoro', state: 'stopped' }]), null), 'stopped', 'kept off for low memory');
+  assert.equal(engineState('kokoro', hubWith([]), null), 'missing', 'an engine the hub does not list');
   assert.equal(engineState('piper', undefined, 'x'), 'checking');
-  assert.equal(engineState('browser', null, null), 'ready', 'the Basic voice needs no server');
+  assert.equal(engineState('browser', undefined, null), 'ready', 'the Basic voice needs no server');
   assert.equal(STATUS_LABEL.stopped, 'Installed but not running');
   assert.equal(STATUS_SHORT.stopped, 'Not running');
   assert.equal(STATUS_LABEL.missing, 'Not installed');
-});
-
-test('a Kokoro the Piper server can start on demand is on standby, not stopped', () => {
-  assert.equal(engineState('kokoro', null, 'x', { id: 'kokoro', state: 'stopped', startsOnDemand: true }), 'standby');
-  assert.equal(engineState('kokoro', null, undefined, { id: 'kokoro', state: 'starting', startsOnDemand: true }), 'starting');
-  assert.equal(engineState('kokoro', null, 'x', { id: 'kokoro', state: 'not-installed', startsOnDemand: false }), 'stopped');
-  assert.equal(engineState('kokoro', { status: 'ok' }, 'x', { startsOnDemand: true }), 'ready', 'a running Kokoro is ready');
   assert.equal(STATUS_LABEL.standby, 'Starts when you read');
-  assert.equal(STATUS_SHORT.standby, 'Standby');
   for (const state of ['ready', 'starting', 'standby']) assert.equal(engineUsable(state), true, state);
   for (const state of ['stopped', 'missing', 'checking']) assert.equal(engineUsable(state), false, state);
 });
 
-test('voicesUrl lists a standby Kokoro through the Piper server', () => {
-  assert.equal(voicesUrl('kokoro', 'standby'), 'http://127.0.0.1:7477/engines/kokoro/voices');
-  assert.equal(voicesUrl('kokoro', 'ready'), 'http://127.0.0.1:7478/voices');
-  assert.equal(voicesUrl('piper', 'ready'), 'http://127.0.0.1:7477/voices');
-  assert.equal(voicesUrl('browser', 'ready'), null);
+test('with the hub not running, set-up engines are installed but not running', () => {
+  assert.equal(engineState('kokoro', DOWN, '2026-11-03T10:00:00Z'), 'stopped');
+  assert.equal(engineState('kokoro', DOWN, undefined), 'missing');
+  assert.equal(engineDetail('kokoro', DOWN, 'stopped'), "VoiceDock's local server is not running.");
+  assert.equal(engineDetail('kokoro', DOWN, 'missing'), 'Kokoro is not set up on this computer.');
 });
 
-test('probeHub maps the Piper server engines by id, or {} when it has none', async () => {
-  const ok = async () => ({ ok: true, json: async () => ({ engines: [{ id: 'piper', state: 'ready' }, { id: 'kokoro', state: 'stopped', startsOnDemand: true }] }) });
-  assert.deepEqual(Object.keys(await probeHub({ fetchImpl: ok })), ['piper', 'kokoro']);
-  assert.equal((await probeHub({ fetchImpl: ok })).kokoro.startsOnDemand, true);
-  assert.deepEqual(await probeHub({ fetchImpl: async () => ({ ok: false }) }), {});
-  assert.deepEqual(await probeHub({ fetchImpl: async () => { throw new TypeError('down'); } }), {});
+test('an older Piper server still reads with Piper; Kokoro needs the update', () => {
+  const old = { reachable: true, api: 1, engines: {} };
+  assert.equal(engineState('piper', old, null), 'ready');
+  assert.equal(engineState('kokoro', old, 'x'), 'stopped');
+  assert.equal(engineDetail('kokoro', old, 'stopped'), "Update VoiceDock's local server to read with Kokoro.");
+});
+
+test('engineInstalled, reasons and the starting line', () => {
+  const hub = hubWith([{ id: 'kokoro', state: 'idle', installed: true, coldStart: { estimateMs: 3400 } }]);
+  assert.equal(engineInstalled('kokoro', hub), true);
+  assert.equal(engineInstalled('piper', hub), false);
+  assert.equal(engineInstalled('kokoro', DOWN), false);
+  assert.equal(startingText('kokoro', hub), 'Starting Kokoro, about 3 s');
+  assert.equal(startingText('kokoro', DOWN), 'Starting Kokoro, about 5 s', 'the plan estimate until measured');
+  assert.equal(unavailableReason('kokoro', 'missing'), 'Kokoro is not set up');
+  assert.equal(unavailableReason('piper', 'stopped'), 'Piper is not running');
+});
+
+test('voices are listed through the hub, so listing never starts Kokoro', () => {
+  assert.equal(voicesUrl('kokoro'), 'http://127.0.0.1:7477/engines/kokoro/voices');
+  assert.equal(voicesUrl('piper'), 'http://127.0.0.1:7477/voices');
+  assert.equal(voicesUrl('browser'), null);
+});
+
+test('fetchEngines reads GET /engines, an old hub, or a hub that is down', async () => {
+  let url = '';
+  const ok = async (u) => { url = u; return { ok: true, json: async () => ({ api: 2, pressure: 'ok', engines: [{ id: 'piper', state: 'ready' }, { id: 'kokoro', state: 'idle' }] }) }; };
+  const hub = await fetchEngines({ fetchImpl: ok });
+  assert.equal(url, 'http://127.0.0.1:7477/engines');
+  assert.equal(hub.reachable, true);
+  assert.equal(hub.api, 2);
+  assert.deepEqual(Object.keys(hub.engines), ['piper', 'kokoro']);
+  const old = await fetchEngines({ fetchImpl: async () => ({ ok: true, json: async () => ({ engines: [{ id: 'kokoro', state: 'stopped' }] }) }) });
+  assert.equal(old.api, 1);
+  assert.deepEqual(await fetchEngines({ fetchImpl: async () => ({ ok: false }) }), { reachable: true, api: 1, engines: {} });
+  assert.deepEqual(await fetchEngines({ fetchImpl: async () => { throw new TypeError('down'); } }), DOWN);
 });
 
 test('markEngineSeen writes at most once a day per engine', () => {
@@ -50,18 +85,6 @@ test('markEngineSeen writes at most once a day per engine', () => {
   const next = markEngineSeen(first, 'piper', day1);
   assert.deepEqual(Object.keys(next).sort(), ['kokoro', 'piper']);
   assert.equal(markEngineSeen(first, 'kokoro', new Date('2026-11-10T01:00:00Z')).kokoro, '2026-11-10T01:00:00.000Z');
-});
-
-test('probeEngine returns /health JSON, a stand-in for non-JSON, or null', async () => {
-  const ok = (body) => async () => ({ ok: true, json: async () => body });
-  assert.deepEqual(await probeEngine('piper', { fetchImpl: ok({ status: 'ok', engine: 'piper' }) }), { status: 'ok', engine: 'piper' });
-  assert.deepEqual(await probeEngine('piper', { fetchImpl: async () => ({ ok: true, json: async () => { throw new Error('x'); } }) }), { status: 'ok' });
-  assert.equal(await probeEngine('piper', { fetchImpl: async () => ({ ok: false }) }), null);
-  assert.equal(await probeEngine('piper', { fetchImpl: async () => { throw new Error('refused'); } }), null);
-  assert.equal(await probeEngine('browser', { fetchImpl: ok({}) }), null, 'no server to ask');
-  let url = '';
-  await probeEngine('kokoro', { fetchImpl: async (u) => { url = u; return { ok: false }; } });
-  assert.equal(url, 'http://127.0.0.1:7478/health');
 });
 
 test('Piper voice names read as people say them', async () => {

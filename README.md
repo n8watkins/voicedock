@@ -76,7 +76,7 @@ npm ci --prefix servers/piper  # Piper server deps (its contract tests need them
 npm run build                  # bundle extension/src into extension/dist
 npm test                       # extension + Piper server tests (node --test) and Kokoro server tests (python3 unittest)
 npm run test:e2e               # the built extension in Chromium against fake engines, with screenshot baselines (Playwright)
-npm run test:e2e:isolated      # the same, in a private network, beside real engines on 7477/7478
+npm run test:e2e:isolated      # the same, in a private network, beside a real hub on 7477
 npm run deploy                 # copy the built extension to the Windows folder Chrome loads
 ```
 
@@ -334,7 +334,7 @@ background.js: which engine does the active profile use?
        ↓                                   ↓       (fallback on: page shows a short note)
  offscreen.js splits text into chunks    chrome.tts.speak()
        ↓
- POST /tts → 127.0.0.1:7477 (Piper) or 127.0.0.1:7478 (Kokoro)
+ POST /tts → the hub on 127.0.0.1:7477: Piper reads there; Kokoro is started on demand and reached through it
        ↓
  WAV audio → Web Audio API, next chunk prefetched while this one plays
 ```

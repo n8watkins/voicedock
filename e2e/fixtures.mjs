@@ -1,5 +1,5 @@
 // Playwright fixtures: VoiceDock loaded unpacked in Chromium with a fresh
-// profile per test, the fake engines on 7477/7478, and helpers to open the
+// profile per test, the fake hub on 7477, and helpers to open the
 // popup and settings pages and to seed chrome.storage.
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';

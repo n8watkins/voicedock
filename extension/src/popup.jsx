@@ -117,7 +117,7 @@ function PopupApp() {
     let disposed = false;
     for (const [id, ready] of [['piper', piperReady], ['kokoro', kokoroReady]]) {
       if (!ready) continue;
-      fetch(voicesUrl(id, engines[id].state)).then((res) => (res.ok ? res.json() : null)).then((data) => {
+      fetch(voicesUrl(id)).then((res) => (res.ok ? res.json() : null)).then((data) => {
         if (disposed || !data) return;
         setVoiceIds((prev) => ({ ...prev, [id]: Array.isArray(data.voices) ? data.voices : [] }));
         setDefaultVoiceByEngine((prev) => ({ ...prev, [id]: data.defaultVoice || '' }));
@@ -125,6 +125,9 @@ function PopupApp() {
     }
     return () => { disposed = true; };
   }, [piperReady, kokoroReady, kokoroStandby]);
+
+  // Opening the popup tells the hub a browser is here (the heartbeat).
+  useEffect(() => { chrome.runtime.sendMessage({ type: 'presence' }).catch?.(() => {}); }, []);
 
   // Warm up: opening the popup on a Kokoro profile starts Kokoro, so the read
   // that usually follows doesn't wait for it.
@@ -442,7 +445,7 @@ function Transport({ reading, playback, shortcut, readHint, onRead, onTogglePaus
           <div className="tp-text">
             <b>Read selection</b>
             {playback.starting
-              ? <span role="status">Starting {engineLabel(playback.starting)}, about 5 s</span>
+              ? <span role="status">{playback.startingText || `Starting ${engineLabel(playback.starting)}`}</span>
               : readHint
                 ? <span className="hint-warn">{readHint}</span>
                 : <span>Select text, then {shortcut ? <>press <Keys combo={shortcut} /></> : 'press play'}</span>}

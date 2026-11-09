@@ -22,7 +22,7 @@ The extension expects the defaults.
   Any other browser origin gets `403` on every route, including the `OPTIONS` preflight, so a web page can't use your local engine.
 - **CORS.** For an allowed extension origin the server echoes it in `Access-Control-Allow-Origin` (with `Vary: Origin`).
   Preflight answers allow `GET, POST, OPTIONS` (Piper also allows `DELETE`) and the `Content-Type` header.
-  The extension also lists both addresses in `host_permissions`, so it works even with an older server that sends no CORS headers.
+  The extension lists the hub's address in `host_permissions`, so it works even with an older server that sends no CORS headers.
 - **JSON everywhere except audio.** Every response that isn't audio is JSON, including errors and unknown routes.
 - **Body limit.** Request bodies are limited to 1 MB.
 

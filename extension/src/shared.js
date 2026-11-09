@@ -5,15 +5,21 @@
 export const APP_NAME = 'VoiceDock';
 
 // ─── Engines ─────────────────────────────────────────────────────────────────
-// Piper and Kokoro are local servers speaking the same API (docs/API.md);
-// "browser" is the Basic voice: Chrome's built-in speech (chrome.tts), which
-// needs no setup and is what a new install reads with.
+// Piper and Kokoro run on this computer behind one local server, the VoiceDock
+// hub on 127.0.0.1:7477 (docs/API.md). The extension talks only to the hub:
+// GET /engines says what is set up and what runs, and every read goes to its
+// POST /tts with the engine's id, so a new engine never needs a new host
+// permission. "browser" is the Basic voice: Chrome's built-in speech
+// (chrome.tts), which needs no setup and is what a new install reads with.
+export const HUB_URL = 'http://127.0.0.1:7477';
+export const HUB_API = 2; // GET /engines answers { api: 2, engines: [...] }
+export const TTS_URL = `${HUB_URL}/tts`;
+
 export const ENGINES = {
   piper: {
     id: 'piper',
     label: 'Piper',
     mono: 'Pi',
-    baseUrl: 'http://127.0.0.1:7477',
     local: true,
     blurb: 'Fast, light local voices.',
     short: 'Natural and light: about 20 MB idle.',
@@ -23,7 +29,6 @@ export const ENGINES = {
     id: 'kokoro',
     label: 'Kokoro',
     mono: 'Ko',
-    baseUrl: 'http://127.0.0.1:7478',
     local: true,
     blurb: 'The most natural voices, 54 in 9 languages.',
     short: 'Most natural: runs only while you read.',
@@ -33,7 +38,6 @@ export const ENGINES = {
     id: 'browser',
     label: 'Basic voice',
     mono: 'Ba',
-    baseUrl: null,
     local: false,
     blurb: "Chrome's built-in speech, the fallback.",
     short: 'Built into Chrome. No setup.',
@@ -43,15 +47,12 @@ export const ENGINES = {
 export const ENGINE_IDS = ['piper', 'kokoro', 'browser'];
 export const LOCAL_ENGINE_IDS = ['piper', 'kokoro'];
 
-export const PIPER_BASE_URL = ENGINES.piper.baseUrl;
-export const KOKORO_BASE_URL = ENGINES.kokoro.baseUrl;
-
 // ─── Engine state: one vocabulary everywhere ────────────────────────────────
-// Ready: answers /health. Starting: answers, but is still loading its model.
-// Standby: not running, but set up, and the Piper server starts it on the
-// first read (Kokoro on demand, see servers/piper/kokoro.js).
-// Installed but not running: it answered at least once before (remembered in
-// storage under ENGINE_SEEN_KEY), but not now. Not installed: it never has.
+// The hub reports each engine's state; these are the words people see.
+// Ready: can read now. Starting: starting, or loading its model. Standby
+// (Starts when you read): set up, not running, and the hub starts it on the
+// first read. Installed but not running: set up, but the hub is not running
+// (or keeps it off: low memory, repeated crashes). Not installed: not set up.
 // Checking: no answer yet on this page. The Basic voice is always Ready.
 export const ENGINE_STATES = ['ready', 'starting', 'standby', 'stopped', 'missing', 'checking'];
 export const STATUS_LABEL = {
@@ -69,73 +70,111 @@ export function engineUsable(state) {
 }
 export const ENGINE_SEEN_KEY = 'engineSeen';
 
-// health: the engine's /health JSON, null when it didn't answer, undefined
-// while the check is in flight. seen: when it last answered (any truthy value).
-// hub: the engine's entry in the Piper server's GET /engines, when it has one.
-export function engineState(id, health, seen, hub) {
-  if (id === 'browser') return 'ready';
-  if (health === undefined) return 'checking';
-  if (health) return health.modelLoading === true ? 'starting' : 'ready';
-  if (hub?.state === 'starting') return 'starting';
-  if (hub?.startsOnDemand) return 'standby';
-  return seen ? 'stopped' : 'missing';
-}
+// The hub's state words (the N8 Tray contract's vocabulary) in the
+// extension's.
+const HUB_STATE = {
+  ready: 'ready',
+  starting: 'starting',
+  idle: 'standby',
+  stopped: 'stopped',
+  failed: 'stopped',
+  busy: 'starting',
+  'not-installed': 'missing',
+  'needs-setup': 'missing',
+  unsupported: 'missing',
+};
 
-// GET /engines on the Piper server: each engine's state there, keyed by id
-// ({} when Piper is down or too old to have the route).
-export async function probeHub({ fetchImpl = globalThis.fetch, timeoutMs = 2500 } = {}) {
+// GET /engines on the hub. Resolves to
+//   { reachable: true, api, engines: { id: entry }, presence, pressure }
+// or { reachable: false, api: 0, engines: {} } when the hub doesn't answer.
+// A hub from before the hub API (VoiceDock 1.1's Piper server) is api 1.
+export async function fetchEngines({ fetchImpl = globalThis.fetch, timeoutMs = 2500 } = {}) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const res = await fetchImpl(`${ENGINES.piper.baseUrl}/engines`, { signal: ctrl.signal });
-    if (!res.ok) return {};
+    const res = await fetchImpl(`${HUB_URL}/engines`, { signal: ctrl.signal, cache: 'no-store' });
+    if (!res.ok) return { reachable: true, api: 1, engines: {} };
     const body = await res.json();
-    return Object.fromEntries((Array.isArray(body?.engines) ? body.engines : []).map((e) => [e.id, e]));
+    const list = Array.isArray(body?.engines) ? body.engines : [];
+    return {
+      reachable: true,
+      api: Number.isInteger(body?.api) ? body.api : 1,
+      engines: Object.fromEntries(list.filter((e) => e && typeof e.id === 'string').map((e) => [e.id, e])),
+      presence: body?.presence || null,
+      pressure: typeof body?.pressure === 'string' ? body.pressure : 'ok',
+    };
   } catch (_) {
-    return {};
+    return { reachable: false, api: 0, engines: {} };
   } finally {
     clearTimeout(timer);
   }
 }
 
-// Where to list an engine's voices: the engine itself while it runs, or the
-// Piper server's copy of Kokoro's list while Kokoro waits in standby.
-export function voicesUrl(id, state) {
-  if (id === 'kokoro' && state === 'standby') return `${ENGINES.piper.baseUrl}/engines/kokoro/voices`;
-  const base = engineBaseUrl(id);
-  return base ? `${base}/voices` : null;
+// hub: what fetchEngines resolved to, or undefined while it is in flight.
+// seen: whether this engine was ever set up (remembered in storage under
+// ENGINE_SEEN_KEY), which only matters while the hub is not running.
+export function engineState(id, hub, seen) {
+  if (id === 'browser') return 'ready';
+  if (hub === undefined) return 'checking';
+  if (!hub.reachable) return seen ? 'stopped' : 'missing';
+  if (hub.api < HUB_API) {
+    // An older Piper server: Piper reads, nothing else can be reached.
+    if (id === 'piper') return 'ready';
+    return seen ? 'stopped' : 'missing';
+  }
+  const entry = hub.engines[id];
+  return entry ? HUB_STATE[entry.state] || 'stopped' : 'missing';
 }
 
-// Records that an engine answered. Returns the new map, or null when nothing
+// Whether the hub says this engine is set up (to remember it as seen).
+export function engineInstalled(id, hub) {
+  return Boolean(hub?.reachable && hub.api >= HUB_API && hub.engines[id]?.installed);
+}
+
+// One plain line on why an engine is in its state, for cards and notes.
+export function engineDetail(id, hub, state = engineState(id, hub, false)) {
+  if (id === 'browser') return 'Built into Chrome.';
+  const label = engineLabel(id);
+  if (!hub || state === 'checking') return '';
+  if (!hub.reachable) {
+    return state === 'stopped' ? "VoiceDock's local server is not running." : `${label} is not set up on this computer.`;
+  }
+  if (hub.api < HUB_API && id !== 'piper') return `Update VoiceDock's local server to read with ${label}.`;
+  return hub.engines[id]?.detail || '';
+}
+
+// Why an engine can't read right now, as the start of a sentence:
+// "Kokoro is not running", "Kokoro is not set up".
+export function unavailableReason(id, state) {
+  const label = engineLabel(id);
+  return state === 'missing' ? `${label} is not set up` : `${label} is not running`;
+}
+
+// About how long until an engine reads after a cold start, in whole seconds:
+// the hub's measured figure for this computer, else its estimate.
+export function startSeconds(id, hub) {
+  const ms = hub?.engines?.[id]?.coldStart?.estimateMs;
+  return Math.max(1, Math.round((Number.isFinite(ms) ? ms : 5000) / 1000));
+}
+
+export function startingText(id, hub) {
+  return `Starting ${engineLabel(id)}, about ${startSeconds(id, hub)} s`;
+}
+
+// Where an engine's voices are listed: the hub lists Kokoro's from its voices
+// file, so this never starts Kokoro.
+export function voicesUrl(id) {
+  if (id === 'piper') return `${HUB_URL}/voices`;
+  return isEngine(id) && ENGINES[id].local ? `${HUB_URL}/engines/${id}/voices` : null;
+}
+
+// Records that an engine is set up. Returns the new map, or null when nothing
 // changed today (so callers write storage at most once a day per engine).
 export function markEngineSeen(seenMap, id, now = new Date()) {
   const map = seenMap && typeof seenMap === 'object' ? seenMap : {};
   const day = now.toISOString().slice(0, 10);
   if (typeof map[id] === 'string' && map[id].slice(0, 10) === day) return null;
   return { ...map, [id]: now.toISOString() };
-}
-
-// GET <engine>/health. Resolves to its JSON (or { status: 'ok' } from a server
-// that answers without JSON), or null when the engine doesn't answer.
-export async function probeEngine(id, { fetchImpl = globalThis.fetch, timeoutMs = 2500 } = {}) {
-  const baseUrl = engineBaseUrl(id);
-  if (!baseUrl) return null;
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-  try {
-    const res = await fetchImpl(`${baseUrl}/health`, { signal: ctrl.signal });
-    if (!res.ok) return null;
-    try {
-      const body = await res.json();
-      return body && typeof body === 'object' ? body : { status: 'ok' };
-    } catch (_) {
-      return { status: 'ok' };
-    }
-  } catch (_) {
-    return null;
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
 export function engineMono(id) {
@@ -152,10 +191,6 @@ export function isEngine(id) {
 
 export function engineLabel(id) {
   return isEngine(id) ? ENGINES[id].label : 'Unknown engine';
-}
-
-export function engineBaseUrl(id) {
-  return isEngine(id) ? ENGINES[id].baseUrl : null;
 }
 
 // Profiles saved before engines existed only have a voice: an empty voice was
@@ -456,7 +491,7 @@ export function sentenceLabel(progress) {
 //   { engine: "piper" | "kokoro" | "browser", voice, fellBack, reason }
 // A local engine that's offline falls back to the browser voice when the
 // fallback setting is on; otherwise there's nothing to play (engine: null).
-export function chooseEngine(profile, onlineByEngine, fallback = true) {
+export function chooseEngine(profile, onlineByEngine, fallback = true, reasonByEngine = {}) {
   const p = normalizeProfile(profile);
   if (p.engine === 'browser') {
     return { engine: 'browser', voice: '', fellBack: false, reason: '' };
@@ -464,7 +499,7 @@ export function chooseEngine(profile, onlineByEngine, fallback = true) {
   if (onlineByEngine?.[p.engine]) {
     return { engine: p.engine, voice: p.voice, fellBack: false, reason: '' };
   }
-  const reason = `${engineLabel(p.engine)} is offline`;
+  const reason = reasonByEngine[p.engine] || `${engineLabel(p.engine)} is not running`;
   if (fallback) return { engine: 'browser', voice: '', fellBack: true, reason };
   return { engine: null, voice: '', fellBack: false, reason };
 }

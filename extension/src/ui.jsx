@@ -5,12 +5,13 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ICONS } from './icons.js';
 import {
   ENGINE_SEEN_KEY,
+  engineDetail,
+  engineInstalled,
   engineMono,
   engineState,
+  fetchEngines,
   LOCAL_ENGINE_IDS,
   markEngineSeen,
-  probeEngine,
-  probeHub,
   STATUS_LABEL,
   STATUS_SHORT,
 } from './shared.js';
@@ -43,14 +44,15 @@ export function EngineMono({ engine, small = false }) {
   return <span className={`vd-mono${small ? ' sm' : ''}`} aria-hidden="true">{engineMono(engine)}</span>;
 }
 
-// Checks Piper and Kokoro now and every pollMs while the page is visible, and
-// remembers which ones have ever answered, so an engine that stopped reads as
-// "Installed but not running" rather than "Not installed". A Kokoro the Piper
-// server can start on demand reads as "Starts when you read" (standby).
-//   engines[id] = { state, health }   recheck() checks again now
+// Asks the hub for every engine now and every pollMs while the page is
+// visible (one GET /engines), and remembers which engines were ever set up,
+// so while the hub is not running an engine reads as "Installed but not
+// running" rather than "Not installed".
+//   engines[id] = { state, entry, detail }   entry: the hub's own report
+//   hub: what GET /engines said (undefined until it answers)
+//   recheck() checks again now
 export function useEngines({ pollMs = 0 } = {}) {
-  const [healthById, setHealthById] = useState({});
-  const [hub, setHub] = useState({});
+  const [hub, setHub] = useState(undefined);
   const [seen, setSeen] = useState(null);
   const [checkedAt, setCheckedAt] = useState(0);
   const [checking, setChecking] = useState(false);
@@ -76,14 +78,11 @@ export function useEngines({ pollMs = 0 } = {}) {
 
   const recheck = useCallback(async () => {
     setChecking(true);
-    const results = await Promise.all(LOCAL_ENGINE_IDS.map(async (id) => [id, await probeEngine(id)]));
-    // The Piper server knows whether it can start Kokoro on demand.
-    const byId = Object.fromEntries(results);
-    setHub(byId.piper && !byId.kokoro ? await probeHub() : {});
-    setHealthById(byId);
+    const next = await fetchEngines();
+    setHub(next);
     let nextSeen = seenRef.current;
-    for (const [id, health] of results) {
-      if (!health) continue;
+    for (const id of LOCAL_ENGINE_IDS) {
+      if (!engineInstalled(id, next)) continue;
       const marked = markEngineSeen(nextSeen, id);
       if (marked) nextSeen = marked;
     }
@@ -94,7 +93,7 @@ export function useEngines({ pollMs = 0 } = {}) {
     }
     setCheckedAt(Date.now());
     setChecking(false);
-    return Object.fromEntries(results);
+    return next;
   }, []);
 
   useEffect(() => {
@@ -104,12 +103,13 @@ export function useEngines({ pollMs = 0 } = {}) {
     return () => clearInterval(timer);
   }, [recheck, pollMs]);
 
-  const engines = { browser: { state: 'ready', health: null } };
+  const engines = { browser: { state: 'ready', entry: null, detail: 'Built into Chrome.' } };
   for (const id of LOCAL_ENGINE_IDS) {
-    const health = healthById[id];
-    // Until the remembered list loads, an engine that didn't answer is still
-    // "Checking", so it never flashes "Not installed" first.
-    engines[id] = { state: health === null && seen === null ? 'checking' : engineState(id, health, seen?.[id], hub[id]), health: health ?? null };
+    // Until the remembered list loads, an engine the hub can't vouch for is
+    // still "Checking", so it never flashes "Not installed" first.
+    const waiting = hub === undefined || (seen === null && !hub.reachable);
+    const state = waiting ? 'checking' : engineState(id, hub, seen?.[id]);
+    engines[id] = { state, entry: hub?.engines?.[id] || null, detail: waiting ? '' : engineDetail(id, hub, state) };
   }
-  return { engines, recheck, checking, checkedAt };
+  return { engines, hub, recheck, checking, checkedAt };
 }

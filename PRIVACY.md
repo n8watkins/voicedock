@@ -20,7 +20,7 @@ Nothing VoiceDock handles is ever sent to the developer.
 It depends on the voice your profile uses.
 
 - **Piper or Kokoro (local voices).**
-  The text is sent to a speech server running on your own computer, at `http://127.0.0.1:7477` (Piper) or `http://127.0.0.1:7478` (Kokoro).
+  The text is sent to VoiceDock's local server on your own computer, at `http://127.0.0.1:7477`, which reads it with Piper or passes it to Kokoro on the same computer.
   `127.0.0.1` is your computer's loopback address: the request never leaves the machine.
   You install and run these servers yourself; they are open source, in the same repository as the extension.
   They turn the text into audio and send it back; they keep no copy of the text and do not log it.
@@ -66,7 +66,8 @@ It uses the text you select only to read it aloud, and transfers it only to the 
 - `tts`: the Basic voice, Chrome's built-in speech.
 - `offscreen`: a hidden extension page that plays the audio Piper and Kokoro return, because an extension's background worker can't play audio.
 - `storage`: the settings listed above.
-- `http://127.0.0.1:7477/*` and `http://127.0.0.1:7478/*`: the Piper and Kokoro servers on your own computer.
+- `alarms`: a check-in with VoiceDock's local server once a minute while Chrome runs, so it can stop the voice engines soon after Chrome closes. Only sent when a profile uses Piper or Kokoro; it carries the extension's version, which engine the active profile uses and whether it is reading, never any text.
+- `http://127.0.0.1:7477/*`: VoiceDock's local server on your own computer, which runs Piper and Kokoro.
 
 ## Contact
 

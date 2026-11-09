@@ -45,7 +45,7 @@ test('popup: the voice picker shows engine pills, then that engine\'s voices', a
 
 test('popup: Kokoro installed but not running', async ({ engines, openPopup, seed }) => {
   await seedProfiles(seed);
-  engines.kokoro.set('stopped');
+  engines.kokoro.set('off');
   const page = await openPopup();
   await expect(page.locator('.reading .sub')).toContainText('Installed but not running');
   await expect(page.locator('.fallback-line')).toHaveText('Basic voice reads until Kokoro runs. How to start');
@@ -55,13 +55,13 @@ test('popup: Kokoro installed but not running', async ({ engines, openPopup, see
 
 test('popup: a Kokoro that starts on demand is on standby, and opening the popup starts it', async ({ engines, openPopup, seed }) => {
   await seedProfiles(seed);
-  engines.kokoro.set('stopped');
-  engines.hub.onDemand = true;
+  engines.kokoro.set('standby');
   const page = await openPopup();
   await expect(page.locator('.dock-cell', { hasText: 'Kokoro' })).toContainText(/Standby|Ready/);
   await expect(page.locator('.fallback-line')).toHaveCount(0);
-  // The popup on a Kokoro profile warms Kokoro up.
+  // The popup on a Kokoro profile warms Kokoro up, and checks in with the hub.
   await expect.poll(() => engines.hub.starts).toBe(1);
+  await expect.poll(() => engines.hub.presence.at(-1)).toMatchObject({ activeEngine: 'kokoro', reading: false });
   await expect(page.locator('.dock-cell', { hasText: 'Kokoro' })).toContainText('Ready', { timeout: 10_000 });
 });
 

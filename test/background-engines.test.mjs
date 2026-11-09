@@ -1,11 +1,10 @@
-// End-to-end engine routing inside the service worker: a profile's engine
-// decides which local server the offscreen player is pointed at, and an engine
-// that is down falls back to the browser voice (or stays silent when the
-// fallback is off). Runs background.js under a chrome shim with fetch mocked.
+// End-to-end engine routing inside the service worker: every read goes to the
+// hub with the profile's engine, an engine the hub can't run falls back to the
+// browser voice (or stays silent when the fallback is off), and the heartbeat
+// reaches the hub. Runs background.js under a chrome shim with fetch mocked.
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 
-const online = { 'http://127.0.0.1:7477': true, 'http://127.0.0.1:7478': true };
 const calls = { runtime: [], tts: [], hints: [], injected: [], tabMessages: [], created: [] };
 // Tabs as the page script sees them: which have the page script running, which
 // Chrome lets the extension script (activeTab granted), and their selection.
@@ -72,20 +71,28 @@ globalThis.chrome = {
   offscreen: { createDocument: async () => {} },
 };
 
-// The Piper server can start Kokoro on demand when hub.canStart is set.
-const hub = { canStart: false, starts: 0 };
+// A fake hub: GET /engines reports each engine's state, and it records
+// warm-ups and heartbeats.
+const hub = { up: true, piper: 'ready', kokoro: 'ready', warms: 0, presence: [], requests: [] };
 globalThis.fetch = async (url, init = {}) => {
-  if (url === 'http://127.0.0.1:7477/engines/kokoro/start' && init.method === 'POST') {
-    if (!online['http://127.0.0.1:7477']) throw new TypeError('fetch failed');
-    if (!hub.canStart) return { ok: false, status: 404, json: async () => ({ error: 'Not found.' }) };
-    hub.starts += 1;
-    online['http://127.0.0.1:7478'] = true;
-    return { ok: true, json: async () => ({ ok: true, state: 'ready' }) };
+  hub.requests.push(`${init.method || 'GET'} ${url}`);
+  if (!hub.up) throw new TypeError('fetch failed');
+  const json = (status, body) => ({ ok: status < 300, status, json: async () => body });
+  if (url === 'http://127.0.0.1:7477/engines') {
+    const entry = (id) => ({ id, state: hub[id], installed: !['not-installed', 'needs-setup'].includes(hub[id]), coldStart: { estimateMs: 3400 } });
+    return json(200, { api: 2, pressure: 'ok', engines: [entry('piper'), entry('kokoro')] });
   }
-  const base = url.replace(/\/health$/, '');
-  if (!online[base]) throw new TypeError('fetch failed');
-  return { ok: true, json: async () => ({ status: 'ok' }) };
+  if (url === 'http://127.0.0.1:7477/engines/kokoro/warm' && init.method === 'POST') {
+    hub.warms += 1;
+    return json(202, { outcome: 'ok', state: 'starting' });
+  }
+  if (url === 'http://127.0.0.1:7477/presence' && init.method === 'POST') {
+    hub.presence.push(JSON.parse(init.body));
+    return json(200, { ok: true });
+  }
+  return json(404, { error: 'Not found.' });
 };
+globalThis.chrome.runtime.getManifest = () => ({ version: '1.2.0' });
 
 await import('../extension/background.js');
 const onMessage = listeners['runtime.onMessage'][0];
@@ -112,80 +119,108 @@ beforeEach(async () => {
   calls.injected.length = 0;
   calls.tabMessages.length = 0;
   pages.scripted.clear();
-  online['http://127.0.0.1:7477'] = true;
-  online['http://127.0.0.1:7478'] = true;
-  hub.canStart = false;
-  hub.starts = 0;
+  Object.assign(hub, { up: true, piper: 'ready', kokoro: 'ready', warms: 0 });
+  hub.presence.length = 0;
+  hub.requests.length = 0;
   store.fallback = true;
 });
 
 const speakTextMessages = () => calls.runtime.filter((m) => m.type === 'speak-text');
 
-test('a Kokoro profile is sent to the Kokoro server', async () => {
+test('a Kokoro profile is sent to the hub with its engine', async () => {
   const res = await send({ type: 'test-voice', text: 'Hi', settings: { engine: 'kokoro', voice: 'bf_emma', rate: 1.2, volume: 0.8 } });
   assert.deepEqual(res, { ok: true, engine: 'kokoro', fellBack: false });
   const [msg] = speakTextMessages();
   assert.equal(msg.engine, 'kokoro');
-  assert.equal(msg.ttsUrl, 'http://127.0.0.1:7478/tts');
+  assert.equal(msg.ttsUrl, 'http://127.0.0.1:7477/tts');
   assert.equal(msg.voice, 'bf_emma');
   assert.equal(msg.rate, 1.2);
   assert.equal(calls.tts.length, 0);
+  assert.equal(hub.requests.some((r) => r.includes(':7478')), false, 'never Kokoro\'s own port');
 });
 
-test('a Piper profile (old voice-only shape) is sent to the Piper server', async () => {
+test('a Piper profile (old voice-only shape) is sent to the hub', async () => {
   const res = await send({ type: 'test-voice', text: 'Hi', settings: { voice: 'en_US-amy-medium.onnx' } });
   assert.equal(res.engine, 'piper');
   const [msg] = speakTextMessages();
+  assert.equal(msg.engine, 'piper');
   assert.equal(msg.ttsUrl, 'http://127.0.0.1:7477/tts');
   assert.equal(msg.voice, 'en_US-amy-medium.onnx');
 });
 
-test('an offline engine falls back to the browser voice and tells the page', async () => {
-  online['http://127.0.0.1:7478'] = false;
-  online['http://127.0.0.1:7477'] = false; // no Piper server, so nothing can start Kokoro
-  // The shortcut reads with the active profile; make it a Kokoro one.
+test('with the hub not running, Kokoro falls back to the Basic voice and the page says why', async () => {
+  hub.up = false;
+  store.engineSeen = { kokoro: '2026-11-09T08:00:00.000Z' };
   store.profiles = [{ id: 'k', name: 'K', engine: 'kokoro', voice: 'af_heart', rate: 1, volume: 1 }];
   store.activeId = 'k';
   onCommand('read-selection', { id: 42 });
   await settle();
-  assert.equal(speakTextMessages().length, 0, 'nothing is sent to the offline engine');
+  assert.equal(speakTextMessages().length, 0, 'nothing is sent to the hub');
   assert.equal(calls.tts.length, 1);
   assert.equal(calls.tts[0].text, 'Hello there');
-  assert.deepEqual(calls.hints, [{ tabId: 42, message: 'Kokoro is offline. Reading with the Basic voice.' }]);
+  assert.deepEqual(calls.hints, [{ tabId: 42, message: 'Kokoro is not running. Reading with the Basic voice.' }]);
+
+  delete store.engineSeen;
+  await stop();
+  calls.hints.length = 0;
+  onCommand('read-selection', { id: 42 });
+  await settle();
+  assert.deepEqual(calls.hints, [{ tabId: 42, message: 'Kokoro is not set up. Reading with the Basic voice.' }], 'never set up here');
 });
 
-test('a stopped Kokoro is started on demand by the Piper server, then reads', async () => {
-  online['http://127.0.0.1:7478'] = false;
-  hub.canStart = true;
+test('a Kokoro on standby reads through the hub, which starts it; the page says how long', async () => {
+  hub.kokoro = 'idle';
   store.profiles = [{ id: 'k', name: 'K', engine: 'kokoro', voice: 'af_heart', rate: 1, volume: 1 }];
   store.activeId = 'k';
   onCommand('read-selection', { id: 42 });
   await settle();
-  assert.equal(hub.starts, 1);
   const [msg] = speakTextMessages();
-  assert.equal(msg.ttsUrl, 'http://127.0.0.1:7478/tts');
+  assert.equal(msg.engine, 'kokoro');
+  assert.equal(msg.ttsUrl, 'http://127.0.0.1:7477/tts');
   assert.equal(calls.tts.length, 0, 'the Basic voice did not read');
-  assert.deepEqual(calls.hints, [{ tabId: 42, message: 'Starting Kokoro, about 5 s' }]);
+  assert.deepEqual(calls.hints, [{ tabId: 42, message: 'Starting Kokoro, about 3 s' }]);
+  const state = await send({ type: 'get-playback-state' }, { tab: { id: 42 } });
+  assert.equal(state.starting, 'kokoro');
+  assert.equal(state.startingText, 'Starting Kokoro, about 3 s');
+  await send({ type: 'engine-audio', engine: 'kokoro' });
+  assert.equal((await send({ type: 'get-playback-state' }, { tab: { id: 42 } })).starting, null, 'first audio: started');
 });
 
-test('a Piper server that cannot start Kokoro leads to the Basic voice', async () => {
-  online['http://127.0.0.1:7478'] = false;
+test('a Kokoro that is not set up leads to the Basic voice', async () => {
+  hub.kokoro = 'not-installed';
   store.profiles = [{ id: 'k', name: 'K', engine: 'kokoro', voice: 'af_heart', rate: 1, volume: 1 }];
   store.activeId = 'k';
   onCommand('read-selection', { id: 42 });
   await settle();
   assert.equal(speakTextMessages().length, 0);
   assert.equal(calls.tts.length, 1);
-  assert.equal(calls.hints.at(-1).message, 'Kokoro is offline. Reading with the Basic voice.');
+  assert.equal(calls.hints.at(-1).message, 'Kokoro is not set up. Reading with the Basic voice.');
 });
 
-test('warm-engine starts Kokoro without reading', async () => {
-  online['http://127.0.0.1:7478'] = false;
-  hub.canStart = true;
+test('warm-engine asks the hub to start Kokoro without reading, and checks in', async () => {
+  store.profiles = [{ id: 'k', name: 'K', engine: 'kokoro', voice: 'af_heart', rate: 1, volume: 1 }];
+  store.activeId = 'k';
   for (const fn of listeners['runtime.onMessage']) fn({ type: 'warm-engine', engine: 'kokoro' }, {}, () => {});
   await settle();
-  assert.equal(hub.starts, 1);
+  assert.equal(hub.warms, 1);
   assert.equal(speakTextMessages().length, 0);
+  assert.deepEqual(hub.presence, [{ extensionVersion: '1.2.0', activeEngine: 'kokoro', reading: false }]);
+});
+
+test('every read with a local engine sends a heartbeat; the Basic voice never touches the hub', async () => {
+  store.profiles = [{ id: 'p', name: 'P', engine: 'piper', voice: 'en_US-amy-medium.onnx', rate: 1, volume: 1 }];
+  store.activeId = 'p';
+  await send({ type: 'test-voice', text: 'Hi', settings: store.profiles[0] });
+  await settle();
+  assert.deepEqual(hub.presence.at(-1), { extensionVersion: '1.2.0', activeEngine: 'piper', reading: true });
+
+  hub.requests.length = 0;
+  store.profiles = [{ id: 'b', name: 'B', engine: 'browser', voice: '', rate: 1, volume: 1 }];
+  store.activeId = 'b';
+  for (const fn of listeners['runtime.onMessage']) fn({ type: 'presence' }, {}, () => {});
+  await send({ type: 'test-voice', text: 'Hi', settings: store.profiles[0] });
+  await settle();
+  assert.deepEqual(hub.requests, [], 'nobody on a local engine: no heartbeat, no checks');
 });
 
 test('the shortcut adds the page script to the tab it was pressed on, then reads its selection', async () => {
@@ -236,24 +271,23 @@ test('reading still works from the menu on a page the player bar cannot be added
 });
 
 test('the Test button reports a fallback', async () => {
-  online['http://127.0.0.1:7477'] = false;
+  hub.up = false;
   const res = await send({ type: 'test-voice', text: 'Hi', settings: { engine: 'piper', voice: '' } });
   assert.deepEqual(res, { ok: true, engine: 'browser', fellBack: true });
   assert.equal(calls.tts.length, 1);
 });
 
-test('with the fallback off, an offline engine reports an error and stays silent', async () => {
-  online['http://127.0.0.1:7478'] = false;
+test('with the fallback off, an engine that cannot run reports an error and stays silent', async () => {
+  hub.kokoro = 'failed';
   store.fallback = false;
   const res = await send({ type: 'test-voice', text: 'Hi', settings: { engine: 'kokoro', voice: 'af_heart' } });
-  assert.deepEqual(res, { ok: false, engine: null, fellBack: false, error: 'Kokoro is offline' });
+  assert.deepEqual(res, { ok: false, engine: null, fellBack: false, error: 'Kokoro is not running' });
   assert.equal(calls.tts.length, 0);
   assert.equal(speakTextMessages().length, 0);
 });
 
 test('the Basic voice never touches a server', async () => {
-  online['http://127.0.0.1:7477'] = false;
-  online['http://127.0.0.1:7478'] = false;
+  hub.up = false;
   const res = await send({ type: 'test-voice', text: 'Hi', settings: { engine: 'browser' } });
   assert.deepEqual(res, { ok: true, engine: 'browser', fellBack: false });
   assert.equal(calls.tts.length, 1);
