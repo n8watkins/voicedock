@@ -19,6 +19,10 @@ servers/piper/output/*.wav
 servers/piper/output/*.mp3
 servers/piper/logs/
 
+# Chrome Web Store packages (npm run package) and release files
+web-store/
+release-artifacts/
+
 # Environment variables
 .env
 .env.local

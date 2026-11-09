@@ -91,6 +91,14 @@ A tracked pre-commit hook (`.githooks/pre-commit`) rebuilds and re-stages them, 
 `npm install` enables the hook through the `prepare` script, or run `git config core.hooksPath .githooks`.
 The same folder holds release-kit's `commit-msg` and `pre-push` hooks.
 
+### Chrome Web Store package
+
+`npm run package` writes `web-store/voicedock-<version>.zip`: the files Chrome loads from `extension/`, without the React sources.
+The zip is reproducible (sorted files, one fixed timestamp), so a commit always gives the same bytes.
+Before writing it, `tools/package-store.mjs` refuses a manifest that breaks the store rules VoiceDock keeps: the `tabs` permission, host access beyond the two local engines, a declared content script, a custom CSP, a remote script, or a file the manifest points at that isn't packaged.
+Each GitHub Release carries the same zip (`npm run release:artifacts`), with its SHA-256 checksum.
+The privacy policy is [PRIVACY.md](PRIVACY.md), published at [n8builds.dev/privacy/voicedock](https://n8builds.dev/privacy/voicedock).
+
 Commits follow Conventional Commits and releases are cut with `npm run release` (see [RELEASING.md](RELEASING.md)).
 The servers are versioned separately from the extension.
 
@@ -302,6 +310,8 @@ The file is self-contained (inline SVG, no network), so it can be kept or shared
 ---
 
 ## Privacy and security
+
+See [PRIVACY.md](PRIVACY.md) for the full privacy policy.
 
 VoiceDock sends selected text only to servers on your own machine.
 The Basic voice asks Chrome for a voice that runs on this device (an operating system voice); only when the system has none does Chrome use its own default, which in Google Chrome can be an online Google voice.
