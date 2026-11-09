@@ -1005,15 +1005,15 @@ code, kbd, pre { font-family: var(--f-mono); }
 .settings-group.engine-history { padding: 0; margin-top: 16px; }
 .history-summary { display: flex; align-items: center; gap: 8px; padding: 12px 15px; cursor: pointer; font-weight: 600; list-style: none; }
 .history-summary::-webkit-details-marker { display: none; }
-.history-summary::after { content: ""; margin-left: auto; width: 7px; height: 7px; border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted); transform: rotate(45deg); transition: transform 0.15s; }
-.engine-history[open] > .history-summary::after { transform: rotate(-135deg); }
+.history-summary .history-chevron { margin-left: auto; color: var(--muted); transition: transform 0.15s; }
+.engine-history[open] > .history-summary .history-chevron { transform: rotate(180deg); }
 .history-count { color: var(--muted); font-weight: 500; }
 .history-body { padding: 0 15px 14px; display: grid; gap: 10px; }
 .history-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.history-list { list-style: none; margin: 0; padding: 0; display: grid; }
-.history-list li { display: grid; grid-template-columns: 78px minmax(0, 1fr); gap: 12px; padding: 6px 0; border-top: 1px solid var(--line); font-size: 13px; }
+.history-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: max-content minmax(0, 1fr); column-gap: 14px; }
+.history-list li { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; padding: 6px 0; border-top: 1px solid var(--line); font-size: 13px; }
 .history-list li:first-child { border-top: 0; }
-.history-list time { font-family: var(--f-mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.history-list time { white-space: nowrap; font-family: var(--f-mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .history-list li span::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 8px; vertical-align: 1px; background: var(--line-strong); }
 .history-list li.tone-ok span::before { background: var(--ok); }
 .history-list li.tone-warn span::before { background: var(--warn); }
