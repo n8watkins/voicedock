@@ -1,0 +1,68 @@
+// The design system on the settings page: one status vocabulary, SVG icons
+// instead of glyphs, and the mark's palette in light and dark.
+import { expect, onlyOnce, test } from './fixtures.mjs';
+
+const piperRow = (page) => page.locator('.header-engine', { hasText: 'Piper' });
+const kokoroRow = (page) => page.locator('.header-engine', { hasText: 'Kokoro' });
+
+test('engines read Ready, Starting, Not running or Not installed', async ({ engines, openOptions, seed }, testInfo) => {
+  test.skip(onlyOnce(testInfo));
+  engines.kokoro.set('stopped');
+  let page = await openOptions('settings');
+  await expect(piperRow(page).locator('.vd-status')).toHaveText('Ready');
+  await expect(kokoroRow(page).locator('.vd-status')).toHaveText('Not installed');
+  await page.close();
+
+  // Kokoro answered once (on an earlier day), and is off now.
+  await seed({ engineSeen: { kokoro: '2026-11-01T09:00:00.000Z' } });
+  page = await openOptions('settings');
+  await expect(kokoroRow(page).locator('.vd-status')).toHaveText('Not running');
+  await expect(page.locator('.settings-group', { hasText: 'Kokoro server' }).locator('.vd-status')).toHaveText('Installed but not running');
+
+  engines.kokoro.set('starting');
+  await page.getByRole('button', { name: 'Check again' }).nth(1).click();
+  await expect(kokoroRow(page).locator('.vd-status')).toHaveText('Starting');
+  engines.kokoro.set('running');
+  await page.getByRole('button', { name: 'Check again' }).nth(1).click();
+  await expect(kokoroRow(page).locator('.vd-status')).toHaveText('Ready');
+});
+
+test('an engine that answers is remembered as installed', async ({ engines, openOptions, serviceWorker }, testInfo) => {
+  test.skip(onlyOnce(testInfo));
+  const page = await openOptions('settings');
+  await expect(kokoroRow(page).locator('.vd-status')).toHaveText('Ready');
+  const seen = await serviceWorker.evaluate(async () => (await chrome.storage.local.get('engineSeen')).engineSeen);
+  expect(Object.keys(seen).sort()).toEqual(['kokoro', 'piper']);
+  engines.kokoro.set('stopped');
+  await page.reload();
+  await expect(kokoroRow(page).locator('.vd-status')).toHaveText('Not running');
+});
+
+test('no glyph icons are left on the settings page', async ({ openOptions }, testInfo) => {
+  test.skip(onlyOnce(testInfo));
+  for (const tab of ['welcome', 'profiles', 'voices', 'settings', 'about', 'credits']) {
+    const page = await openOptions(tab);
+    await expect(page.locator('.tab-panel')).toBeVisible();
+    const text = await page.locator('body').innerText();
+    expect(text, tab).not.toMatch(/[▶■⚙★☆↗✓✗⚠＋‹›]/);
+    expect(text, tab).not.toMatch(/piper[ _-]?tts/i);
+    await page.close();
+  }
+});
+
+for (const tab of ['welcome', 'profiles', 'voices', 'settings']) {
+  test(`settings page: ${tab}`, async ({ openOptions, seed }) => {
+    await seed({
+      profiles: [
+        { id: 'a', name: 'Articles', engine: 'piper', voice: 'en_US-ryan-high.onnx', rate: 1.2, volume: 1 },
+        { id: 'b', name: 'Long reads', engine: 'kokoro', voice: 'af_heart', rate: 1, volume: 1.1 },
+      ],
+      activeId: 'a',
+      favoritesByEngine: { piper: ['en_US-ryan-high.onnx'], kokoro: [] },
+    });
+    const page = await openOptions(tab, { width: 760, height: 900 });
+    await expect(page.locator('.header-engine .vd-status.ready')).toHaveCount(2);
+    if (tab === 'voices') await expect(page.locator('.voice-card')).toHaveCount(5);
+    await expect(page).toHaveScreenshot(`options-${tab}.png`, { fullPage: true });
+  });
+}

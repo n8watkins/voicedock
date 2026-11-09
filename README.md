@@ -47,10 +47,10 @@ voicedock/                      (VoiceDock)
 │   ├── manifest.json
 │   ├── background.js           Service worker: menus, shortcuts, engine choice, fallback
 │   ├── offscreen.html/.js      Hidden page that fetches and plays engine audio (MV3 requirement)
-│   ├── content.js              Page script injected on demand: selection, player bar (progress, live speed and volume), hints
-│   ├── src/                    React source for popup and options, plus shared.js
-│   ├── dist/                   Built React bundles loaded by Chrome
-│   └── popup.*, options.*, icons/
+│   ├── tokens.css              Design tokens (palette from the mark, light and dark) and shared atoms
+│   ├── src/                    Sources: popup and options (React), page.js (injected on demand: selection, player bar, hints), icons.js, shared.js
+│   ├── dist/                   Bundles Chrome loads, built from src/
+│   └── popup.*, options.*, icons/, fonts/
 ├── servers/
 │   ├── piper/                  Node.js server that runs piper.exe (port 7477), plus the VoiceDock tray
 │   └── kokoro/                 Python server that runs Kokoro-82M (port 7478), plus a systemd unit
@@ -58,7 +58,7 @@ voicedock/                      (VoiceDock)
 │   ├── API.md                  The engine API both servers implement
 │   ├── NAMING.md               The VoiceDock name, alternatives, and what a rename touches
 │   └── TRAY_PLAN.md            The n8voice N8 Tray module that runs both engines (built)
-├── UPDATE_WINDOWS_SERVER.md    How to update the Piper server running on Windows
+├── UPDATE_WINDOWS_SERVER.md    What runs where on the owner's PC, and how to update it
 ├── test/                       node --test: extension helpers, engine routing, Piper server contract
 └── tools/                      esbuild, version bump, Windows deploy, screenshots, git hooks, icon sources
 ```
@@ -210,7 +210,7 @@ See [servers/kokoro/README.md](servers/kokoro/README.md) for details, logs, and 
 
 ## Usage
 
-**Read text aloud:** highlight text, right-click, and choose **Read selected text aloud** (or press `Alt+Shift+S`).
+**Read text aloud:** highlight text, right-click, and choose **Read selection** (or press `Alt+Shift+S`).
 Stop with `Alt+Shift+S` again, the popup's **Stop** button, or right-click → **Stop reading**.
 
 **Keyboard shortcuts:**
@@ -262,7 +262,7 @@ Switch profiles with the `‹` / `›` arrows in the popup, or use **Read as…*
 ## How it works
 
 ```
-Highlight text → right-click "Read selected text aloud" (or Alt+Shift+S)
+Highlight text → right-click "Read selection" (or Alt+Shift+S)
        ↓
 background.js: which engine does the active profile use?
        ↓                                   ↓
@@ -278,7 +278,7 @@ background.js: which engine does the active profile use?
 Manifest V3 service workers can't play audio, so engine audio is played by an **offscreen document**, a hidden page that can use `new Audio()`.
 
 VoiceDock has no content script on every site.
-When you read from a page (the right-click menu or the shortcut), Chrome grants the extension `activeTab` for that tab, and `background.js` injects `content.js` into it with `chrome.scripting` for the selection, the player bar and short hints.
+When you read from a page (the right-click menu or the shortcut), Chrome grants the extension `activeTab` for that tab, and `background.js` injects the page script (`dist/page.js`, built from `src/page.js`) into it with `chrome.scripting` for the selection, the player bar and short hints.
 The player bar shows on the page you started reading from; the popup and the shortcuts control playback from anywhere.
 Pages Chrome doesn't let extensions script (`chrome://` pages, the Chrome Web Store, the PDF viewer) get no player bar; where Chrome offers the right-click menu there (the PDF viewer), it still reads.
 Both servers implement the same small API, documented in [docs/API.md](docs/API.md).

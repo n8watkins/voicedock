@@ -12,6 +12,7 @@ export const ENGINES = {
   piper: {
     id: 'piper',
     label: 'Piper',
+    mono: 'Pi',
     baseUrl: 'http://127.0.0.1:7477',
     local: true,
     blurb: 'The light default: fast local voices, about 20 MB of RAM when idle (Node.js server on port 7477).',
@@ -19,6 +20,7 @@ export const ENGINES = {
   kokoro: {
     id: 'kokoro',
     label: 'Kokoro',
+    mono: 'Ko',
     baseUrl: 'http://127.0.0.1:7478',
     local: true,
     blurb: 'Optional: more natural voices in 9 languages, for a 338 MB one-time download and about 300-700 MB of RAM while its model is loaded (it is released after 10 idle minutes). Needs Python, in WSL on Windows (port 7478).',
@@ -26,6 +28,7 @@ export const ENGINES = {
   browser: {
     id: 'browser',
     label: 'Basic voice',
+    mono: 'Ba',
     baseUrl: null,
     local: false,
     blurb: "Chrome's built-in speech: no setup, always available, and the fallback when Piper or Kokoro isn't running. VoiceDock picks a voice that runs on this device.",
@@ -36,6 +39,67 @@ export const LOCAL_ENGINE_IDS = ['piper', 'kokoro'];
 
 export const PIPER_BASE_URL = ENGINES.piper.baseUrl;
 export const KOKORO_BASE_URL = ENGINES.kokoro.baseUrl;
+
+// ─── Engine state: one vocabulary everywhere ────────────────────────────────
+// Ready: answers /health. Starting: answers, but is still loading its model.
+// Installed but not running: it answered at least once before (remembered in
+// storage under ENGINE_SEEN_KEY), but not now. Not installed: it never has.
+// Checking: no answer yet on this page. The Basic voice is always Ready.
+export const ENGINE_STATES = ['ready', 'starting', 'stopped', 'missing', 'checking'];
+export const STATUS_LABEL = {
+  ready: 'Ready',
+  starting: 'Starting',
+  stopped: 'Installed but not running',
+  missing: 'Not installed',
+  checking: 'Checking',
+};
+export const STATUS_SHORT = { ...STATUS_LABEL, stopped: 'Not running' };
+export const ENGINE_SEEN_KEY = 'engineSeen';
+
+// health: the engine's /health JSON, null when it didn't answer, undefined
+// while the check is in flight. seen: when it last answered (any truthy value).
+export function engineState(id, health, seen) {
+  if (id === 'browser') return 'ready';
+  if (health === undefined) return 'checking';
+  if (health) return health.modelLoading === true ? 'starting' : 'ready';
+  return seen ? 'stopped' : 'missing';
+}
+
+// Records that an engine answered. Returns the new map, or null when nothing
+// changed today (so callers write storage at most once a day per engine).
+export function markEngineSeen(seenMap, id, now = new Date()) {
+  const map = seenMap && typeof seenMap === 'object' ? seenMap : {};
+  const day = now.toISOString().slice(0, 10);
+  if (typeof map[id] === 'string' && map[id].slice(0, 10) === day) return null;
+  return { ...map, [id]: now.toISOString() };
+}
+
+// GET <engine>/health. Resolves to its JSON (or { status: 'ok' } from a server
+// that answers without JSON), or null when the engine doesn't answer.
+export async function probeEngine(id, { fetchImpl = globalThis.fetch, timeoutMs = 2500 } = {}) {
+  const baseUrl = engineBaseUrl(id);
+  if (!baseUrl) return null;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetchImpl(`${baseUrl}/health`, { signal: ctrl.signal });
+    if (!res.ok) return null;
+    try {
+      const body = await res.json();
+      return body && typeof body === 'object' ? body : { status: 'ok' };
+    } catch (_) {
+      return { status: 'ok' };
+    }
+  } catch (_) {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export function engineMono(id) {
+  return isEngine(id) ? ENGINES[id].mono : '··';
+}
 
 export const MAX_PROFILES = 5;
 export const MAX_FAVORITES = 5; // per engine
@@ -169,6 +233,7 @@ export function uuid() {
     : Date.now().toString(36) + Math.random().toString(36).slice(2);
 }
 
+// Kokoro's first letter is the language (docs: hexgrad/Kokoro-82M VOICES.md).
 const KOKORO_LANGUAGES = {
   a: 'US English',
   b: 'UK English',
@@ -186,11 +251,46 @@ export function kokoroVoiceDetails(voice) {
   const match = /^([a-z])([fm])_(.+)$/i.exec(voice || '');
   if (!match) return null;
   const [, lang, gender, rest] = match;
+  const language = KOKORO_LANGUAGES[lang.toLowerCase()] || 'Other';
   return {
     name: rest.charAt(0).toUpperCase() + rest.slice(1),
-    language: KOKORO_LANGUAGES[lang.toLowerCase()] || 'Other',
+    language,
+    baseLanguage: language.replace(/^(US|UK) /, ''),
     gender: gender.toLowerCase() === 'f' ? 'female' : 'male',
   };
+}
+
+const PIPER_NAME_FIXES = { libritts: 'LibriTTS', libritts_r: 'LibriTTS R', ljspeech: 'LJSpeech', vctk: 'VCTK', hfc_female: 'HFC female', hfc_male: 'HFC male', l2arctic: 'L2-ARCTIC', arctic: 'ARCTIC' };
+const QUALITY_NAMES = { x_low: 'Extra low', low: 'Low', medium: 'Medium', high: 'High' };
+
+function displayName(type, code) {
+  try { return new Intl.DisplayNames(['en'], { type }).of(code) || code; } catch (_) { return code; }
+}
+
+// A locale like "en_US" or "en-US" as people say it: "US English",
+// "UK English", "Spanish (Spain)". baseLanguage is just "English".
+export function describeLocale(locale) {
+  const [lang = '', region = ''] = String(locale || '').split(/[-_]/);
+  if (!lang) return { language: 'Other', baseLanguage: 'Other' };
+  const baseLanguage = displayName('language', lang.toLowerCase());
+  if (!region) return { language: baseLanguage, baseLanguage };
+  const upper = region.toUpperCase();
+  if (lang.toLowerCase() === 'en' && (upper === 'US' || upper === 'GB')) {
+    return { language: `${upper === 'GB' ? 'UK' : 'US'} English`, baseLanguage };
+  }
+  return { language: `${baseLanguage} (${displayName('region', upper)})`, baseLanguage };
+}
+
+// "en_US-ryan-high.onnx" → { name: "Ryan", language: "US English",
+// baseLanguage: "English", quality: "High" }
+export function piperVoiceDetails(filename) {
+  const parts = String(filename || '').replace(/\.onnx$/i, '').split('-');
+  if (parts.length < 2) return null;
+  const [locale, rawName, tier] = parts;
+  const key = rawName.toLowerCase();
+  const name = PIPER_NAME_FIXES[key]
+    || key.split('_').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+  return { name, ...describeLocale(locale), quality: QUALITY_NAMES[(tier || '').toLowerCase()] || '' };
 }
 
 export function formatVoiceName(voice, empty = 'Chrome default voice') {
@@ -199,14 +299,9 @@ export function formatVoiceName(voice, empty = 'Chrome default voice') {
     const details = kokoroVoiceDetails(voice);
     return details ? `${details.name} · ${details.language}` : voice;
   }
-  const base = voice.replace(/\.onnx$/, '');
-  const parts = base.split('-');
-  if (parts.length >= 3) {
-    const name = parts[1].charAt(0).toUpperCase() + parts[1].slice(1);
-    const quality = parts[2].charAt(0).toUpperCase() + parts[2].slice(1);
-    return `${name} · ${quality}`;
-  }
-  return base;
+  const details = piperVoiceDetails(voice);
+  if (details && details.quality) return `${details.name} · ${details.quality}`;
+  return details ? details.name : voice.replace(/\.onnx$/, '');
 }
 
 // One line for a profile's voice, e.g. "Kokoro · Heart · US English".
