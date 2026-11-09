@@ -7,7 +7,7 @@ import { findOldNames } from '../tools/check-names.mjs';
 const OLD = ['Piper', 'TTS'].join(' ');
 
 test('every spelling of the old name is caught', () => {
-  for (const text of [OLD, 'piper-tts', 'PIPER_TTS_WINDOWS_USER', 'PiperTtsLocalServer', 'com.n8.pipertts.tray']) {
+  for (const text of [OLD, 'piper-tts', 'PIPER_TTS_WINDOWS_USER', 'PiperTtsLocalServer', 'com.n8.pipertts.tray']) { // legacy-name
     assert.equal(findOldNames('x.js', `a\n${text}\n`).length, 1, text);
   }
   assert.deepEqual(findOldNames('x.js', 'Piper reads fast. Kokoro TTS server.'), [], 'the engine names alone are fine');

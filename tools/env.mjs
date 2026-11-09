@@ -1,5 +1,5 @@
 // Settings the repo's tools read from the environment. Each is VOICEDOCK_<NAME>;
-// the PIPER_TTS_<NAME> spelling from before the rename still works for one
+// the PIPER_TTS_<NAME> spelling from before the rename still works for one // legacy-name
 // release, with a note saying which name to use instead.
 const warned = new Set();
 
