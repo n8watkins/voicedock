@@ -16,7 +16,8 @@
  * /n8/v2/*                      → N8 Tray contract v2, with a token (hub/n8tray.js)
  *
  * For one release, the routes the 1.1 extension uses stay:
- * POST /engines/kokoro/start, and Kokoro keeps
+ * POST /engines/kokoro/start, POST /engines/kokoro/stop (local programs
+ * only: the PowerShell N8 Tray's n8voice), and Kokoro keeps
  * answering on its own port 7478.
  *
  * Requires:
@@ -228,9 +229,17 @@ app.post("/engines/kokoro/start", async (_req, res) => {
   }
 });
 
-// No stop without the token: stopping an engine is N8 Tray's
-// (POST /n8/v2/actions/engine.stop), never the data plane's (contract
-// section 9). The hub's own policy stops engines when they are not needed.
+// The PowerShell N8 Tray's n8voice (frozen until the Tauri tray replaces it)
+// stops Kokoro here, for one release. Stopping is not the data plane's
+// business (contract section 9), so only a local program may: any request
+// with an Origin (a web page, any extension) is refused. N8 Tray's own way is
+// POST /n8/v2/actions/engine.stop, with the token.
+app.post("/engines/kokoro/stop", async (req, res) => {
+  if (req.get("Origin") !== undefined) {
+    return res.status(403).json({ error: "Only N8 Tray stops engines." });
+  }
+  res.json({ ok: true, stopped: await app.locals.hub.stopEngine("kokoro", "asked by the PowerShell N8 Tray") });
+});
 
 // ─── Validation Helpers ───────────────────────────────────────────────────────
 function validateText(text) {

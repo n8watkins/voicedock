@@ -158,7 +158,7 @@ test('kokoroPython and stopAfterSeconds', () => {
   assert.equal(stopAfterSeconds({ KOKORO_STOP_AFTER_SECONDS: 'soon' }), 1800);
 });
 
-test('the 1.1 extension route still starts Kokoro through the hub, and nothing stops it without a token', async () => {
+test('the 1.1 routes: the extension starts Kokoro, and only a local program (the PowerShell tray) stops it', async () => {
   const { app } = require('../servers/piper/server.js');
   const real = app.locals.kokoro;
   const events = [];
@@ -181,9 +181,12 @@ test('the 1.1 extension route still starts Kokoro through the hub, and nothing s
     const started = await fetch(`${base}/engines/kokoro/start`, { method: 'POST' });
     assert.equal(started.status, 200);
     assert.deepEqual(await started.json(), { ok: true, state: 'ready', owned: true, startedMs: 3100 });
-    const noStop = await fetch(`${base}/engines/kokoro/stop`, { method: 'POST' });
-    assert.equal(noStop.status, 404, 'stopping needs N8 Tray\'s token');
+    const fromExtension = await fetch(`${base}/engines/kokoro/stop`, { method: 'POST', headers: { Origin: 'chrome-extension://abcdefghijklmnop' } });
+    assert.equal(fromExtension.status, 403, 'no extension or page may stop an engine');
     assert.deepEqual(events, ['start']);
+    const fromTray = await (await fetch(`${base}/engines/kokoro/stop`, { method: 'POST' })).json();
+    assert.equal(fromTray.stopped, true, 'the PowerShell tray (no Origin) still can');
+    assert.deepEqual(events, ['start', 'stop']);
 
     running = false;
     app.locals.kokoro.start = async () => { const e = new Error('no venv'); e.code = 'not-installed'; throw e; };
