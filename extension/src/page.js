@@ -374,7 +374,7 @@ import TOKENS_SOURCE from "../tokens.css";
 
     const note = document.createElement("div");
     note.className = "rocker-note";
-    note.textContent = "The Basic voice can’t change volume or speed while it reads.";
+    note.textContent = "The Basic voice can’t change these mid-read.";
 
     panel.append(speed.row, vol.row, note);
     rocker.appendChild(panel);

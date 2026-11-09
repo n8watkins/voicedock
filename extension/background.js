@@ -541,7 +541,7 @@ async function speakText(text, profile, tabId = null) {
     return { ok: true, engine: "browser", fellBack: choice.fellBack };
   }
 
-  if (tabId != null) showTabHint({ id: tabId }, `${choice.reason}. Turn on the Basic voice fallback in Settings to hear it anyway.`);
+  if (tabId != null) showTabHint({ id: tabId }, `${choice.reason}. Turn on the Basic voice fallback to hear it.`);
   return { ok: false, engine: null, fellBack: false, error: choice.reason };
 }
 
