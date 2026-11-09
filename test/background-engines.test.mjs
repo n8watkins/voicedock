@@ -6,7 +6,10 @@ import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 
 const online = { 'http://127.0.0.1:7477': true, 'http://127.0.0.1:7478': true };
-const calls = { runtime: [], tts: [], hints: [] };
+const calls = { runtime: [], tts: [], hints: [], injected: [], tabMessages: [] };
+// Tabs as the page script sees them: which have content.js running, which
+// Chrome lets the extension script (activeTab granted), and their selection.
+const pages = { scripted: new Set(), scriptable: new Set([7, 42]), selection: { 42: 'Hello there' } };
 const store = { fallback: true };
 const listeners = {};
 
@@ -37,8 +40,24 @@ globalThis.chrome = {
   commands: { onCommand: event('commands.onCommand') },
   tts: { stop() {}, speak(text, opts) { calls.tts.push({ text, opts }); }, pause() {}, resume() {} },
   tabs: {
-    query: (_q, cb) => cb?.([]),
-    sendMessage: async (tabId, msg) => { if (msg.type === 'show-hint') calls.hints.push({ tabId, message: msg.message }); },
+    onRemoved: event('tabs.onRemoved'),
+    query: async () => [],
+    sendMessage: async (tabId, msg) => {
+      if (!pages.scripted.has(tabId)) throw new Error('Could not establish connection. Receiving end does not exist.');
+      calls.tabMessages.push({ tabId, type: msg.type });
+      if (msg.type === 'ping') return { ok: true };
+      if (msg.type === 'get-selection') return { text: pages.selection[tabId] || '' };
+      if (msg.type === 'show-hint') calls.hints.push({ tabId, message: msg.message });
+      return undefined;
+    },
+  },
+  scripting: {
+    executeScript: async ({ target, files }) => {
+      if (!pages.scriptable.has(target.tabId)) throw new Error('Cannot access contents of the page.');
+      calls.injected.push({ tabId: target.tabId, files });
+      pages.scripted.add(target.tabId);
+      return [{}];
+    },
   },
   offscreen: { createDocument: async () => {} },
 };
@@ -51,6 +70,9 @@ globalThis.fetch = async (url) => {
 
 await import('../extension/background.js');
 const onMessage = listeners['runtime.onMessage'][0];
+const onCommand = listeners['commands.onCommand'][0];
+const onMenuClick = listeners['contextMenus.onClicked'][0];
+const settle = () => new Promise((r) => setTimeout(r, 20));
 
 function send(message, sender = {}) {
   return new Promise((resolve) => {
@@ -68,6 +90,9 @@ beforeEach(async () => {
   calls.runtime.length = 0;
   calls.tts.length = 0;
   calls.hints.length = 0;
+  calls.injected.length = 0;
+  calls.tabMessages.length = 0;
+  pages.scripted.clear();
   online['http://127.0.0.1:7477'] = true;
   online['http://127.0.0.1:7478'] = true;
   store.fallback = true;
@@ -96,15 +121,62 @@ test('a Piper profile (old voice-only shape) is sent to the Piper server', async
 
 test('an offline engine falls back to the browser voice and tells the page', async () => {
   online['http://127.0.0.1:7478'] = false;
-  // keyboard-read reads with the active profile; make it a Kokoro one.
+  // The shortcut reads with the active profile; make it a Kokoro one.
   store.profiles = [{ id: 'k', name: 'K', engine: 'kokoro', voice: 'af_heart', rate: 1, volume: 1 }];
   store.activeId = 'k';
-  await send({ type: 'keyboard-read', text: 'Hello there' }, { tab: { id: 42 } });
-  await new Promise((r) => setTimeout(r, 20));
+  onCommand('read-selection', { id: 42 });
+  await settle();
   assert.equal(speakTextMessages().length, 0, 'nothing is sent to the offline engine');
   assert.equal(calls.tts.length, 1);
   assert.equal(calls.tts[0].text, 'Hello there');
   assert.deepEqual(calls.hints, [{ tabId: 42, message: 'Kokoro is offline. Using the browser voice.' }]);
+});
+
+test('the shortcut adds the page script to the tab it was pressed on, then reads its selection', async () => {
+  store.profiles = [{ id: 'p', name: 'P', engine: 'piper', voice: 'en_US-amy-medium.onnx', rate: 1, volume: 1 }];
+  store.activeId = 'p';
+  onCommand('read-selection', { id: 42 });
+  await settle();
+  assert.deepEqual(calls.injected, [{ tabId: 42, files: ['content.js'] }]);
+  const [msg] = speakTextMessages();
+  assert.equal(msg.text, 'Hello there');
+  assert.equal(msg.ttsUrl, 'http://127.0.0.1:7477/tts');
+});
+
+test('a page that already has the page script is not injected again', async () => {
+  pages.scripted.add(42);
+  onCommand('read-selection', { id: 42 });
+  await settle();
+  assert.deepEqual(calls.injected, []);
+  assert.ok(calls.tabMessages.some((m) => m.tabId === 42 && m.type === 'get-selection'));
+});
+
+test('the shortcut on a page Chrome does not let extensions script does nothing', async () => {
+  onCommand('read-selection', { id: 99 });
+  await settle();
+  assert.deepEqual(calls.injected, []);
+  assert.equal(calls.tts.length, 0);
+  assert.equal(speakTextMessages().length, 0);
+});
+
+test('the right-click menu adds the player bar to that page, and playback state goes only there', async () => {
+  store.profiles = [{ id: 'p', name: 'P', engine: 'piper', voice: 'en_US-amy-medium.onnx', rate: 1, volume: 1 }];
+  store.activeId = 'p';
+  await onMenuClick({ menuItemId: 'read-selection', selectionText: 'Read me' }, { id: 7 });
+  await settle();
+  assert.deepEqual(calls.injected, [{ tabId: 7, files: ['content.js'] }]);
+  assert.equal(speakTextMessages()[0].text, 'Read me');
+  const stateTabs = new Set(calls.tabMessages.filter((m) => m.type === 'playback-state').map((m) => m.tabId));
+  assert.deepEqual([...stateTabs], [7]);
+});
+
+test('reading still works from the menu on a page the player bar cannot be added to', async () => {
+  store.profiles = [{ id: 'p', name: 'P', engine: 'piper', voice: 'en_US-amy-medium.onnx', rate: 1, volume: 1 }];
+  store.activeId = 'p';
+  await onMenuClick({ menuItemId: 'read-selection', selectionText: 'Read me' }, { id: 99 });
+  await settle();
+  assert.deepEqual(calls.injected, []);
+  assert.equal(speakTextMessages()[0].text, 'Read me');
 });
 
 test('the Test button reports a fallback', async () => {
