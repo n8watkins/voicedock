@@ -227,7 +227,8 @@ async function playQueue(sentences, ttsUrl, voice, engine, generation) {
     return fetched.get(i);
   };
 
-  const reportError = (err) => {
+  // index: the sentence that failed, so the Basic voice can read on from it.
+  const reportError = (err, index) => {
     if (err && err.isStop === true) return; // intentional stop - exit silently
     if (live()) {
       console.error("TTS sentence error:", err);
@@ -236,6 +237,7 @@ async function playQueue(sentences, ttsUrl, voice, engine, generation) {
         type: "playback-error",
         engine,
         reason: (err && err.reason) || "",
+        index,
         error: (err && err.message) || `${engineLabel(engine)} playback failed.`
       }).catch(() => {});
     }
@@ -256,7 +258,7 @@ async function playQueue(sentences, ttsUrl, voice, engine, generation) {
 
     if (!live()) break;
     if (jumpTo !== null) { i = jumpTo; jumpTo = null; continue; }
-    if (err) { reportError(err); break; }
+    if (err) { reportError(err, i); break; }
 
     // Paused between sentences: wait for resume-audio (or a skip).
     if (isPaused) {
@@ -274,7 +276,7 @@ async function playQueue(sentences, ttsUrl, voice, engine, generation) {
     } catch (playErr) {
       if (playErr.isSkip === true) { i = jumpTo ?? i; jumpTo = null; continue; }
       if (playErr.isStop === true) break; // intentional stop
-      reportError(playErr);
+      reportError(playErr, i);
       break;
     }
     if (jumpTo !== null) { i = jumpTo; jumpTo = null; continue; }

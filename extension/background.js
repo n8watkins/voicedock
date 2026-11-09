@@ -4,6 +4,8 @@
 import {
   ENGINE_SEEN_KEY,
   HUB_URL,
+  basicVoiceNote,
+  readNote,
   LOCAL_ENGINE_IDS,
   TTS_URL,
   chooseEngine,
@@ -165,6 +167,15 @@ function deviceVoiceName() {
   return _deviceVoicePromise;
 }
 
+async function hasNoBrowserVoices() {
+  try {
+    if (!chrome.tts.getVoices) return false;
+    return (await chrome.tts.getVoices()).length === 0;
+  } catch (_) {
+    return false;
+  }
+}
+
 // A profile can name one of the system's voices; it is used when this device
 // still has it (and runs it on-device), else VoiceDock picks one.
 async function browserVoiceFor(settings) {
@@ -181,6 +192,11 @@ async function browserVoiceFor(settings) {
 // The Basic voice reads one sentence per chrome.tts utterance, so it reports
 // "Sentence 3 of 6" and can skip like the engines.
 let _browserQueue = null; // { sentences, index, settings, voiceName, generation, token, waiting }
+
+// The Basic voice failed: say so on the page it was reading for.
+function basicVoiceFailed(q, error) {
+  if (q?.tabId != null) showTabNote(q.tabId, basicVoiceNote({ error }));
+}
 
 function finishBrowserPlayback() {
   _browserQueue = null;
@@ -218,13 +234,15 @@ function speakBrowserSentence() {
         finishBrowserPlayback();
       } else if (e.type === "error") {
         console.error("tts error:", e.errorMessage);
+        basicVoiceFailed(q, e.errorMessage);
         finishBrowserPlayback();
       }
     }
   });
 }
 
-async function speakWithBrowser(text, settings) {
+// tabId: the page to tell when the Basic voice can't read (null: none).
+async function speakWithBrowser(text, settings, tabId = null) {
   const effectiveSettings = settings || {};
   const generation = ++_browserSpeakGeneration;
   _activeEngineRequest = null;
@@ -243,7 +261,13 @@ async function speakWithBrowser(text, settings) {
   const voiceName = await browserVoiceFor(effectiveSettings);
   // Stopped, or another read started, while the voice list loaded.
   if (generation !== _browserSpeakGeneration || _playbackEngine !== "browser") return;
-  _browserQueue = { sentences, index: 0, settings: effectiveSettings, voiceName, generation, token: 0, waiting: false };
+  // No voice at all on this computer: chrome.tts would stay silent.
+  if (await hasNoBrowserVoices()) {
+    if (tabId != null) showTabNote(tabId, basicVoiceNote({ noVoices: true }));
+    finishBrowserPlayback();
+    return;
+  }
+  _browserQueue = { sentences, index: 0, settings: effectiveSettings, voiceName, generation, token: 0, waiting: false, tabId };
   speakBrowserSentence();
 }
 
@@ -535,12 +559,16 @@ async function speakText(text, profile, tabId = null) {
 
   let online = {};
   const reasons = {};
+  let engineStateNow = "";
+  // A new read: the last read's note goes.
+  if (tabId != null) showTabNote(tabId, null);
   if (settings.engine !== "browser") {
     const hub = await getHub();
     // While the hub is not running, an engine that was set up before is
     // "not running" rather than "not set up".
     const seen = hub.reachable ? null : (await chrome.storage.local.get(ENGINE_SEEN_KEY))[ENGINE_SEEN_KEY]?.[settings.engine];
     const state = engineState(settings.engine, hub, seen);
+    engineStateNow = state;
     online = { [settings.engine]: engineUsable(state) };
     reasons[settings.engine] = unavailableReason(settings.engine, state);
     // Not running yet: the hub starts it for this read. Say so now, so the
@@ -561,22 +589,23 @@ async function speakText(text, profile, tabId = null) {
       return { ok: true, engine: choice.engine, fellBack: false };
     } catch (err) {
       console.error(`${engineLabel(choice.engine)} failed:`, err.message);
+      engineStateNow = "stopped";
       choice = fallback
-        ? { engine: "browser", fellBack: true, reason: err.message }
-        : { engine: null, reason: err.message };
+        ? { engine: "browser", fellBack: true, reason: `${engineLabel(choice.engine)} could not start` }
+        : { engine: null, reason: `${engineLabel(choice.engine)} could not start` };
     }
   }
 
   if (choice.engine === "browser") {
     if (choice.fellBack) {
       console.log(`${choice.reason}; falling back to the Basic voice`);
-      if (tabId != null) showTabHint({ id: tabId }, `${choice.reason}. Reading with the Basic voice.`);
+      if (tabId != null) showTabNote(tabId, readNote({ engine: settings.engine, when: "start", state: engineStateNow, fellBack: true }));
     }
-    await speakWithBrowser(text, settings);
+    await speakWithBrowser(text, settings, tabId);
     return { ok: true, engine: "browser", fellBack: choice.fellBack };
   }
 
-  if (tabId != null) showTabHint({ id: tabId }, `${choice.reason}. Turn on the Basic voice fallback to hear it.`);
+  if (tabId != null) showTabNote(tabId, readNote({ engine: settings.engine, when: "start", state: engineStateNow, fellBack: false }));
   return { ok: false, engine: null, fellBack: false, error: choice.reason };
 }
 
@@ -594,6 +623,13 @@ async function getTabSelection(tab) {
   } catch (_) {
     return "";
   }
+}
+
+// A note in the player bar that stays until it is dismissed (or the next read
+// starts): what happened, and one fix (src/shared.js readNote). null clears it.
+function showTabNote(tabId, note) {
+  if (tabId == null) return;
+  chrome.tabs.sendMessage(tabId, { type: "show-note", note }).catch(() => {});
 }
 
 function showTabHint(tab, message) {
@@ -711,6 +747,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   // Popup opened on a Kokoro profile: start Kokoro now, so the read that
   // usually follows doesn't wait.
+  // A note's fix button on the page: the engine's guided setup.
+  if (message.type === "open-setup") {
+    const engine = LOCAL_ENGINE_IDS.includes(message.engine) ? message.engine : "";
+    chrome.tabs.create({ url: chrome.runtime.getURL(`options.html#engines${engine ? `:${engine}` : ""}`) }).catch(() => {});
+    return;
+  }
+
   // The popup opened: a client is here.
   if (message.type === "presence") {
     sendPresence().catch(() => {});
@@ -756,6 +799,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === "playback-error") {
     const request = _activeEngineRequest;
+    const tabId = _playingSourceTabId;
     _engineStarting = null;
     invalidateEngineCache();
     _isPlaying = false;
@@ -769,10 +813,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     (async () => {
       const { fallback = true } = await chrome.storage.local.get("fallback");
-      const label = engineLabel(message.engine || request?.settings?.engine);
-      if (fallback && request?.text) {
-        console.warn(`${label} playback failed; falling back to the Basic voice:`, message.error);
-        speakWithBrowser(request.text, request.settings || {});
+      const engine = message.engine || request?.settings?.engine;
+      const label = engineLabel(engine);
+      const readOn = fallback && Boolean(request?.text);
+      // Before the first sentence played, "stopped" would be wrong: it never ran.
+      const when = Number(message.index) > 0 ? "mid" : "start";
+      if (tabId != null) showTabNote(tabId, readNote({ engine, when, reason: message.reason || "failed", fellBack: readOn }));
+      if (readOn) {
+        console.warn(`${label} playback failed; reading on with the Basic voice:`, message.error);
+        // Read on from the sentence that failed, not from the top.
+        const rest = splitSentences(request.text).slice(Math.max(0, Number(message.index) || 0)).join(" ");
+        _playingSourceTabId = tabId;
+        speakWithBrowser(rest || request.text, request.settings || {}, tabId);
       } else {
         console.error(`${label} playback failed:`, message.error);
       }

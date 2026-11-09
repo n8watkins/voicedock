@@ -6,7 +6,9 @@
 // toolbar button). It provides:
 //   1. The selection bridge for the keyboard shortcut
 //   2. The floating "Now Playing" overlay (shadow DOM, bottom-right corner)
-//   3. Short hints ("Select text first", "Piper is offline...")
+//   3. Short hints ("Select text first", "Starting Kokoro, about 3 s")
+//   4. Notes that stay until dismissed when an engine can't read: what
+//      happened, and one fix (the engine's guided setup)
 //
 import { iconElement } from "./icons.js";
 import { engineLabel, sentenceLabel } from "./shared.js";
@@ -33,6 +35,8 @@ import TOKENS_SOURCE from "../tokens.css";
   let _currentVolume = 1.0;
   let _currentRate   = 1.0;
   let _currentEngine = null; // "piper" | "kokoro" | "browser": browser TTS can't adjust live
+  let _startingText = "";    // "Starting Kokoro, about 3 s" until a cold engine's first audio
+  let _note = null;          // { tone, text, fix } until dismissed or the next read
   let _runtimeUnavailable = false;
   let _playbackPollTimer = null;
 
@@ -106,6 +110,7 @@ import TOKENS_SOURCE from "../tokens.css";
     if (state.volume != null) _currentVolume = state.volume;
     if (state.rate != null) _currentRate = state.rate;
     if (state.engine !== undefined) _currentEngine = state.engine;
+    _startingText = state.starting ? (state.startingText || "") : "";
     updateOverlay(_localPlaying, _localPaused, state.progress);
   }
 
@@ -126,6 +131,10 @@ import TOKENS_SOURCE from "../tokens.css";
       }
       if (message.type === "show-hint") {
         showHint(message.message || "");
+        return;
+      }
+      if (message.type === "show-note") {
+        showNote(message.note || null);
       }
     });
   } catch (error) {
@@ -159,6 +168,36 @@ import TOKENS_SOURCE from "../tokens.css";
       -webkit-font-smoothing: antialiased;
     }
     * { box-sizing: border-box; }
+
+    /* Notes and hints sit above the bar, right-aligned. */
+    .stack { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+
+    /* ── A note: amber while VoiceDock still reads, red when nothing can ── */
+    .note {
+      display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: 4px 10px;
+      width: 360px; padding: 10px 8px 10px 12px;
+      background: color-mix(in srgb, var(--warn-soft) 75%, var(--surface));
+      border: 1px solid color-mix(in srgb, var(--warn) 35%, var(--line));
+      border-radius: 12px; box-shadow: var(--shadow-pop);
+      font-size: 12.5px; line-height: 1.45; color: var(--ink);
+    }
+    .note.err {
+      background: color-mix(in srgb, var(--err-soft) 75%, var(--surface));
+      border-color: color-mix(in srgb, var(--err) 35%, var(--line));
+    }
+    .note-icon { color: var(--warn); padding-top: 1px; display: flex; }
+    .note.err .note-icon { color: var(--err); }
+    .note-text { padding-top: 1px; }
+    .note-fix {
+      grid-column: 2; justify-self: start; margin-top: 4px;
+      font: 600 12px/1 var(--f-ui); color: var(--accent-ink); background: var(--accent);
+      border: 0; border-radius: 7px; padding: 7px 10px; cursor: pointer;
+    }
+    .note-fix:hover { background: var(--accent-hover); }
+    .note .note-close { color: var(--muted); }
+    .note .note-close:hover { background: color-mix(in srgb, var(--ink) 8%, transparent); color: var(--ink); }
+    .note-fix:focus-visible, .note-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+    .note-close { width: 26px; height: 26px; }
 
     /* ── The bar ── */
     .bar {
@@ -275,7 +314,9 @@ import TOKENS_SOURCE from "../tokens.css";
 
     const style = document.createElement("style");
     style.textContent = OVERLAY_CSS;
-    overlayShadow.appendChild(style);
+    const stack = document.createElement("div");
+    stack.className = "stack";
+    overlayShadow.append(style, stack);
 
     (document.body || document.documentElement).appendChild(overlayHost);
     return overlayShadow;
@@ -287,21 +328,67 @@ import TOKENS_SOURCE from "../tokens.css";
     overlayHost = overlayShadow = null;
   }
 
+  const stackOf = (shadow) => shadow.querySelector(".stack");
+
+  // Nothing left to show (no note, hint or bar): take the host off the page.
+  function removeOverlayIfEmpty() {
+    if (overlayShadow && !stackOf(overlayShadow).childElementCount) removeOverlay();
+  }
+
+  // A short hint never replaces the bar or a note: it sits above the bar.
   let _hintTimer = null;
   function showHint(msg) {
-    const shadow = ensureOverlay();
-    shadow.querySelectorAll(".bar, .hint-bar").forEach(el => el.remove());
+    const stack = stackOf(ensureOverlay());
+    stack.querySelectorAll(".hint-bar").forEach(el => el.remove());
 
-    const bar = document.createElement("div");
-    bar.className = "hint-bar";
-    bar.textContent = msg;
-    shadow.appendChild(bar);
+    const hint = document.createElement("div");
+    hint.className = "hint-bar";
+    hint.setAttribute("role", "status");
+    hint.textContent = msg;
+    stack.insertBefore(hint, stack.querySelector(".bar"));
 
     clearTimeout(_hintTimer);
     _hintTimer = setTimeout(() => {
-      bar.remove();
-      if (!shadow.querySelector(".bar")) removeOverlay();
+      hint.remove();
+      removeOverlayIfEmpty();
     }, 2500);
+  }
+
+  // A note stays until dismissed or the next read (background.js sends null).
+  function showNote(note) {
+    _note = note && typeof note.text === "string" ? note : null;
+    if (!_note) {
+      overlayShadow?.querySelectorAll(".note").forEach(el => el.remove());
+      removeOverlayIfEmpty();
+      return;
+    }
+    const stack = stackOf(ensureOverlay());
+    stack.querySelectorAll(".note").forEach(el => el.remove());
+    const box = document.createElement("div");
+    box.className = `note ${_note.tone === "err" ? "err" : "warn"}`;
+    // Red means nothing reads: interrupt. Amber: VoiceDock still reads.
+    box.setAttribute("role", _note.tone === "err" ? "alert" : "status");
+    const ic = document.createElement("span");
+    ic.className = "note-icon";
+    ic.appendChild(icon(_note.tone === "err" ? "alert" : "warn", 16));
+    const text = document.createElement("span");
+    text.className = "note-text";
+    text.textContent = _note.text;
+    const close = document.createElement("button");
+    close.className = "btn note-close";
+    close.title = "Dismiss";
+    close.setAttribute("aria-label", "Dismiss");
+    close.appendChild(icon("close", 14));
+    close.addEventListener("click", () => showNote(null));
+    box.append(ic, text, close);
+    if (_note.fix && _note.fix.label) {
+      const fix = document.createElement("button");
+      fix.className = "note-fix";
+      fix.textContent = _note.fix.label;
+      fix.addEventListener("click", () => sendRuntimeMessage({ type: "open-setup", engine: _note.fix.engine }));
+      box.appendChild(fix);
+    }
+    stack.prepend(box);
   }
 
   // Icons come from the shared set (src/icons.js), drawn as inline SVG so the
@@ -408,12 +495,12 @@ import TOKENS_SOURCE from "../tokens.css";
   function updateOverlay(isPlaying, isPaused, progress = _lastProgress) {
     _lastProgress = progress;
     if (!isPlaying && !isPaused) {
-      if (overlayHost && !overlayShadow?.querySelector(".hint-bar")) removeOverlay();
+      overlayShadow?.querySelector(".bar")?.remove();
+      removeOverlayIfEmpty();
       return;
     }
 
     const shadow = ensureOverlay();
-    shadow.querySelectorAll(".hint-bar").forEach(el => el.remove());
 
     let bar = shadow.querySelector(".bar");
     if (!bar) {
@@ -468,7 +555,8 @@ import TOKENS_SOURCE from "../tokens.css";
         _localPlaying = false;
         _localPaused  = false;
         sendRuntimeMessage({ type: "stop-all" });
-        removeOverlay();
+        bar.remove();
+        removeOverlayIfEmpty();
       });
 
       bar = document.createElement("div");
@@ -476,7 +564,7 @@ import TOKENS_SOURCE from "../tokens.css";
       bar.setAttribute("role", "region");
       bar.setAttribute("aria-label", "VoiceDock player");
       bar.append(brand, btnPP, info, volWrap, btnClose);
-      shadow.appendChild(bar);
+      stackOf(shadow).appendChild(bar);
     }
 
     const btnPP  = bar.querySelector(".btn-pp");
@@ -512,10 +600,11 @@ import TOKENS_SOURCE from "../tokens.css";
       setIcon(btnPP, "pause", 14);
       btnPP.title = "Pause";
       btnPP.setAttribute("aria-label", "Pause");
-      lblText.textContent = started ? `Reading ${sentence.toLowerCase()}` : "Starting";
+      // A cold engine: say how long, until its first audio (background.js).
+      lblText.textContent = _startingText || (started ? `Reading ${sentence.toLowerCase()}` : "Starting");
       lbl.className = "lbl";
       // The pulse means sound is coming out: only once a sentence plays.
-      dot.className = started ? "dot live" : "dot";
+      dot.className = started && !_startingText ? "dot live" : "dot";
     }
   }
 
