@@ -125,7 +125,9 @@ function createReaderTracker({
 
     /** Memory fields for /health. */
     snapshot() {
-      const list = [...readers.values()].map((r) => ({ pid: r.pid, voice: r.voice, rssMb: r.rssMb }));
+      const list = [...readers.values()].map((r) => ({
+        pid: r.pid, voice: r.voice, rssMb: r.rssMb, startedAt: new Date(r.startedAt).toISOString(),
+      }));
       const readerRssMb = round1(list.reduce((sum, r) => sum + (r.rssMb || 0), 0));
       const newest = [...readers.values()].sort((a, b) => b.startedAt - a.startedAt)[0];
       return {

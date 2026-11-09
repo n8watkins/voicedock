@@ -10,6 +10,8 @@ docs/API.md in the repo root):
   GET  /voices  -> {"engine": "kokoro", "voices": [...]}
   POST /tts     -> body {"text": "...", "voice": "af_heart", "speed": 1.0, "lang": "en-us"}
                    returns audio/wav (16-bit PCM, 24 kHz mono)
+  POST /unload  -> releases the model now unless it is speaking (the VoiceDock
+                   hub asks this under memory pressure): {"ok": true, "released": bool}
 
 Errors are JSON: {"error": "...", "details": "..."} with a 4xx or 5xx status.
 
@@ -280,6 +282,81 @@ def iso_utc(timestamp: float | None) -> str | None:
     return datetime.fromtimestamp(timestamp, timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
+def iso_utc_ms(timestamp: float | None) -> str | None:
+    """A Unix timestamp as an ISO 8601 UTC string with milliseconds."""
+    if timestamp is None:
+        return None
+    return datetime.fromtimestamp(timestamp, timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+class ProcessReporter:
+    """The processes this server runs as, for the hub's resource report.
+
+    The VoiceDock hub reports every process it owns to N8 Tray (contract v2,
+    resources): pid, creation time, parent, memory and CPU. Node cannot read
+    those for another process cheaply on Windows, so Kokoro reports its own.
+    On Windows a uv venv's python.exe is a small launcher that runs the real
+    interpreter as its child, so when this process's parent is not the hub but
+    the parent's parent is, the launcher is reported too (role "helper").
+
+    CPU is the share of the whole machine since the previous report (psutil
+    keeps the previous sample per Process object), None on the first one.
+    Needs psutil; without it the report is empty.
+    """
+
+    def __init__(self, hub_pid: int = 0):
+        self._hub_pid = hub_pid
+        self._procs: dict[int, object] = {}
+
+    def _process(self, psutil, pid: int):
+        proc = self._procs.get(pid)
+        if proc is None:
+            proc = psutil.Process(pid)
+            proc.cpu_percent(None)  # first call primes the sample
+            self._procs[pid] = proc
+            return proc, True
+        return proc, False
+
+    def report(self) -> list[dict]:
+        try:
+            import psutil
+        except ImportError:
+            return []
+        try:
+            me = psutil.Process()
+            pids = [(me.pid, "engine")]
+            parent = me.parent()
+            if (
+                self._hub_pid
+                and parent is not None
+                and parent.pid != self._hub_pid
+                and parent.ppid() == self._hub_pid
+            ):
+                pids.insert(0, (parent.pid, "helper"))
+            cores = psutil.cpu_count() or 1
+            out = []
+            for pid, role in pids:
+                proc, fresh = self._process(psutil, pid)
+                with proc.oneshot():
+                    memory = proc.memory_info()
+                    cpu = None if fresh else round(proc.cpu_percent(None) / cores, 1)
+                    entry = {
+                        "pid": pid,
+                        "startedAt": iso_utc_ms(proc.create_time()),
+                        "parentPid": proc.ppid(),
+                        "role": role,
+                        "rssMb": round(memory.rss / (1024 * 1024), 1),
+                        "cpuPercent": cpu,
+                    }
+                    private = getattr(memory, "private", None)  # Windows only
+                    if private is not None:
+                        entry["privateMb"] = round(private / (1024 * 1024), 1)
+                out.append(entry)
+            return out
+        except Exception:  # noqa: BLE001 - a process vanished, or the OS refused
+            return []
+
+
 def drop_file_cache(*paths: Path) -> None:
     """Tell the kernel it may drop these files from the page cache (Linux).
 
@@ -349,6 +426,7 @@ class KokoroEngine:
         self._rss_mb = rss_mb
         self._started_at = wall_clock()
         self._loaded_at: float | None = None  # wall-clock times, for /health
+        self._load_ms: int | None = None  # how long the last model load took
         self._unloaded_at: float | None = None
         self._last_speak_at: float | None = None
         self._voices = read_voice_names(voices_path)
@@ -391,13 +469,15 @@ class KokoroEngine:
             started = time.monotonic()
             print(f"[kokoro] loading model {self._model_path.name} ...", flush=True)
             kokoro = self._loader(self._model_path, self._voices_path)
-            print(f"[kokoro] model loaded in {time.monotonic() - started:.1f} s", flush=True)
+            took = time.monotonic() - started
+            print(f"[kokoro] model loaded in {took:.1f} s", flush=True)
         finally:
             with self._lock:
                 self._loading = False
         with self._lock:
             self._kokoro = kokoro
             self._loaded_at = self._wall_clock()
+            self._load_ms = round(took * 1000)
         self._wake.set()  # let the reaper start counting idle time
 
     def synthesize(self, text: str, voice: str, speed: float, lang: str) -> bytes:
@@ -421,9 +501,11 @@ class KokoroEngine:
                 self._last_used = self._clock()
         return wav_bytes(samples, sample_rate)
 
-    def unload_if_idle(self) -> bool:
+    def unload_if_idle(self, force: bool = False) -> bool:
         """Release the model if it has been idle long enough; True if released.
 
+        With force, release it now whatever the idle time (the hub asks under
+        memory pressure), but still never while it is speaking.
         Never waits: if a load, synthesis or release holds the model, it is
         not idle, and the reaper checks again later.
         """
@@ -431,10 +513,10 @@ class KokoroEngine:
             return False
         try:
             with self._lock:
-                if (
-                    self._kokoro is None
-                    or self._active
-                    or self._idle_unload_seconds <= 0
+                if self._kokoro is None or self._active:
+                    return False
+                if not force and (
+                    self._idle_unload_seconds <= 0
                     or self._clock() - self._last_used < self._idle_unload_seconds
                 ):
                     return False
@@ -446,7 +528,8 @@ class KokoroEngine:
             self._release()
         finally:
             self._model_lock.release()
-        print(f"[kokoro] model released after {idle:.0f} s idle", flush=True)
+        reason = "on request" if force else f"after {idle:.0f} s idle"
+        print(f"[kokoro] model released {reason}", flush=True)
         return True
 
     def idle_seconds(self) -> float:
@@ -480,6 +563,7 @@ class KokoroEngine:
                 "startedAt": iso_utc(self._started_at),
                 "modelLoadedAt": iso_utc(self._loaded_at),
                 "modelUnloadedAt": iso_utc(self._unloaded_at),
+                "modelLoadMs": self._load_ms,
                 "lastSpeakAt": iso_utc(self._last_speak_at),
                 "idleSeconds": round(idle),
                 "idleUnloadSeconds": (
@@ -504,8 +588,9 @@ class KokoroEngine:
                 self.unload_if_idle()
 
 
-def make_handler(engine: Engine) -> type[BaseHTTPRequestHandler]:
+def make_handler(engine: Engine, reporter: ProcessReporter | None = None) -> type[BaseHTTPRequestHandler]:
     """Build a request handler bound to one engine instance."""
+    reporter = reporter or ProcessReporter(PARENT_PID)
 
     class Handler(BaseHTTPRequestHandler):
         server_version = f"VoiceDockKokoro/{VERSION}"
@@ -578,6 +663,7 @@ def make_handler(engine: Engine) -> type[BaseHTTPRequestHandler]:
                 if status:
                     health.update(status())
                     health["idleExitSeconds"] = int(IDLE_EXIT_SECONDS)
+                health["processes"] = reporter.report()
                 self._json(200, health)
             elif path == "/voices":
                 self._json(200, {
@@ -590,6 +676,11 @@ def make_handler(engine: Engine) -> type[BaseHTTPRequestHandler]:
 
         def do_POST(self) -> None:  # noqa: N802 (stdlib signature)
             if self._reject_origin():
+                return
+            if self._path() == "/unload":
+                unload = getattr(engine, "unload_if_idle", None)
+                released = bool(unload(force=True)) if unload else False
+                self._json(200, {"ok": True, "released": released})
                 return
             if self._path() != "/tts":
                 self._json(404, {"error": "Not found."})

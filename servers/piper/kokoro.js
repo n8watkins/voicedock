@@ -18,8 +18,16 @@
  * - It never outlives this server: Kokoro gets KOKORO_PARENT_PID and exits
  *   when this process is gone, even when this one is killed outright.
  *
+ * - Crashes. A Kokoro that exits on its own with an error (or while starting)
+ *   counts as a crash. The next start waits 1, 2, 4 ... 60 s after repeated
+ *   crashes, and after 5 crashes in 10 minutes Kokoro is "failed" until it
+ *   is started by hand (POST /n8/v2/actions/engine.start) or the server restarts.
+ *
  * A Kokoro someone else started (a systemd unit, a terminal) is left alone:
  * it is reported as running and never stopped from here.
+ *
+ * The policy around it (one heavy engine at a time, no browser means no
+ * engines, memory pressure) lives in hub/engines.js.
  */
 
 const fs = require("fs");
@@ -30,6 +38,12 @@ const KOKORO_PORT = Number(process.env.KOKORO_PORT || 7478);
 const KOKORO_HOST = "127.0.0.1";
 const START_TIMEOUT_MS = 25_000;
 const DEFAULT_STOP_AFTER_SECONDS = 1800;
+const CRASH_WINDOW_MS = 10 * 60_000;
+const CRASHES_TO_FAIL = 5;
+const MAX_BACKOFF_MS = 60_000;
+// A start waits out a backoff this short; a longer one is refused instead,
+// so a read never hangs on a crashing engine.
+const MAX_BACKOFF_WAIT_MS = 4_000;
 
 function kokoroDir() {
   return path.resolve(process.env.KOKORO_DIR || path.join(__dirname, "..", "kokoro"));
@@ -60,6 +74,13 @@ function missingSetup({ dir = kokoroDir(), exists = fs.existsSync, platform = pr
     if (!exists(path.join(dir, "models", file))) return `Kokoro's model file ${file} is missing: run setup.ps1 (Windows) or setup.sh`;
   }
   return null;
+}
+
+// "not-installed" when nothing of Kokoro is set up yet, "needs-setup" when
+// its environment exists but a model file is missing, null when it is set up.
+function setupState(missing) {
+  if (!missing) return null;
+  return /model file/.test(missing) ? "needs-setup" : "not-installed";
 }
 
 // Kokoro's voice ids from its voices file without starting Kokoro.
@@ -100,6 +121,13 @@ function readVoiceNames(file) {
   }
 }
 
+// Backoff before the next start after `consecutive` crashes in a row:
+// none after the first, then 1, 2, 4 ... 60 s.
+function crashBackoffMs(consecutive) {
+  if (consecutive < 2) return 0;
+  return Math.min(MAX_BACKOFF_MS, 1000 * 2 ** (consecutive - 2));
+}
+
 async function kokoroHealth(timeoutMs = 800) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -113,8 +141,23 @@ async function kokoroHealth(timeoutMs = 800) {
   }
 }
 
+// Asks Kokoro to release its model now (it refuses while speaking).
+async function kokoroUnload(timeoutMs = 2000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(`http://${KOKORO_HOST}:${KOKORO_PORT}/unload`, { method: "POST", signal: ctrl.signal });
+    return res.ok ? (await res.json()).released === true : false;
+  } catch (_) {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function createKokoroLauncher({
   health = kokoroHealth,
+  unloadImpl = kokoroUnload,
   spawnImpl = spawn,
   setup = () => missingSetup(),
   dir = kokoroDir,
@@ -124,10 +167,47 @@ function createKokoroLauncher({
   pollMs = 250,
   env = process.env,
   log = console,
+  now = Date.now,
 } = {}) {
   let child = null;      // the Kokoro process this server started, while it runs
   let starting = null;   // the in-flight start, shared by concurrent callers
   let startedAt = null;
+  let lastStartMs = null; // process start to first /health answer, last time
+  let crashes = [];       // times of recent crashes (within CRASH_WINDOW_MS)
+  let consecutive = 0;    // crashes since the last clean run
+  let lastCrashAt = null;
+  let lastError = null;
+  let failed = false;     // 5 crashes in 10 minutes: no more starts on demand
+  let outside = { at: -Infinity, health: null }; // last check while not ours
+
+  // /health for status reports. While this server runs Kokoro it answers
+  // fast, so ask it. Otherwise only a Kokoro started elsewhere (WSL, a
+  // terminal) could answer, and on Windows a closed loopback port takes up
+  // to a second to refuse, so that answer is reused for 3 s.
+  async function probe() {
+    if (owned() || starting) return health();
+    if (Date.now() - outside.at < 3000) return outside.health;
+    const h = await health(300);
+    outside = { at: Date.now(), health: h };
+    return h;
+  }
+
+  function recordCrash(reason) {
+    const t = now();
+    lastCrashAt = t;
+    lastError = reason;
+    consecutive += 1;
+    crashes = crashes.filter((c) => t - c < CRASH_WINDOW_MS).concat(t);
+    if (crashes.length >= CRASHES_TO_FAIL && !failed) {
+      failed = true;
+      log.error?.(`[kokoro] failed: ${crashes.length} crashes in 10 minutes; it starts again only when asked by hand`);
+    }
+  }
+
+  function backoffLeftMs() {
+    if (lastCrashAt == null) return 0;
+    return Math.max(0, lastCrashAt + crashBackoffMs(consecutive) - now());
+  }
 
   function owned() {
     return child !== null && child.exitCode === null && child.signalCode === null;
@@ -157,7 +237,11 @@ function createKokoroLauncher({
     if (out !== null) fs.closeSync(out);
     proc.on("error", (err) => log.error?.(`[kokoro] could not start: ${err.message}`));
     proc.on("exit", (code, signal) => {
-      if (child === proc) child = null;
+      // Still ours means nobody asked it to stop: an error exit is a crash.
+      // A clean exit is Kokoro stopping itself (idle, or this server gone).
+      const unasked = child === proc;
+      if (unasked) child = null;
+      if (unasked && code !== 0) recordCrash(`Kokoro stopped unexpectedly (${signal || `exit ${code}`})`);
       log.log?.(`[kokoro] stopped (${signal || `exit ${code}`})`);
     });
     child = proc;
@@ -172,18 +256,23 @@ function createKokoroLauncher({
       const h = await health();
       if (h) return h;
       if (proc.exitCode !== null || proc.signalCode !== null) {
-        throw new Error(`Kokoro exited while starting (see ${logFile})`);
+        const message = `Kokoro exited while starting (see ${logFile})`;
+        if (proc.exitCode === 0) recordCrash(message); // error exits are counted on exit
+        throw new Error(message);
       }
       await new Promise((r) => setTimeout(r, pollMs));
     }
     stop();
-    throw new Error(`Kokoro did not answer within ${Math.round(startTimeoutMs / 1000)} s (see ${logFile})`);
+    const message = `Kokoro did not answer within ${Math.round(startTimeoutMs / 1000)} s (see ${logFile})`;
+    recordCrash(message);
+    throw new Error(message);
   }
 
   // Resolves to { state: "ready", owned, health, startedMs } once Kokoro
   // answers. Rejects with an Error whose `code` is "not-installed" when setup
-  // is missing, or "failed" when it would not start.
-  async function start() {
+  // is missing, or "failed" when it would not start (or keeps crashing).
+  // manual: asked by hand, which clears a "failed" state and any backoff.
+  async function start({ manual = false } = {}) {
     const running = await health();
     if (running) return { state: "ready", owned: owned(), health: running, startedMs: 0 };
     if (starting) return starting;
@@ -193,12 +282,32 @@ function createKokoroLauncher({
       err.code = "not-installed";
       throw err;
     }
+    if (manual) {
+      failed = false;
+      crashes = [];
+      consecutive = 0;
+      lastCrashAt = null;
+    }
+    if (failed) {
+      const err = new Error(`Kokoro keeps crashing (${lastError}); start it by hand to try again`);
+      err.code = "failed";
+      throw err;
+    }
+    const wait = backoffLeftMs();
+    if (wait > MAX_BACKOFF_WAIT_MS) {
+      const err = new Error(`Kokoro crashed; it can start again in ${Math.ceil(wait / 1000)} s`);
+      err.code = "failed";
+      throw err;
+    }
     const began = Date.now();
     starting = (async () => {
       try {
+        if (wait > 0) await new Promise((r) => setTimeout(r, wait));
         const proc = owned() ? child : launch();
         const h = await waitUntilHealthy(proc);
         const startedMs = Date.now() - began;
+        lastStartMs = startedMs;
+        outside = { at: -Infinity, health: null };
         log.log?.(`[kokoro] ready in ${(startedMs / 1000).toFixed(1)} s`);
         return { state: "ready", owned: true, health: h, startedMs };
       } catch (err) {
@@ -212,12 +321,19 @@ function createKokoroLauncher({
   }
 
   // Stops the Kokoro this server started. Returns true when one was stopped.
+  // A run that got this far without crashing resets the crash streak.
   function stop() {
     if (!owned()) return false;
     const proc = child;
     child = null;
+    consecutive = 0;
     try { proc.kill(); } catch (_) {}
     return true;
+  }
+
+  // Asks a running Kokoro to release its model now (memory pressure).
+  async function unload() {
+    return unloadImpl();
   }
 
   // A Piper read is about to start: stop our idle Kokoro, so only the engine
@@ -230,14 +346,15 @@ function createKokoroLauncher({
     return stop();
   }
 
-  // For GET /engines.
-  async function status() {
-    const h = await health();
+  // For GET /engines. `h` is a /health answer the caller already has.
+  async function status(h) {
+    if (h === undefined) h = await probe();
     const missing = setup();
     let state = "stopped";
     if (starting) state = "starting";
     else if (h) state = h.modelLoading ? "starting" : "ready";
     else if (missing) state = "not-installed";
+    else if (failed) state = "failed";
     return {
       id: "kokoro",
       state,
@@ -246,9 +363,16 @@ function createKokoroLauncher({
       startedAt: owned() && startedAt ? new Date(startedAt).toISOString() : null,
       rssMb: h?.rssMb ?? null,
       modelLoaded: h?.modelLoaded ?? false,
+      speaking: h?.speaking === true,
       stopAfterSeconds: stopAfterSeconds(env),
       setup: missing,
-      startsOnDemand: !missing,
+      setupState: setupState(missing),
+      startsOnDemand: !missing && !failed,
+      lastStartMs,
+      modelLoadMs: h?.modelLoadMs ?? null,
+      lastError,
+      restartInSeconds: Math.ceil(backoffLeftMs() / 1000),
+      health: h || null,
     };
   }
 
@@ -261,7 +385,10 @@ function createKokoroLauncher({
     return { engine: "kokoro", voices: voiceCache, defaultVoice: "af_heart" };
   }
 
-  return { start, stop, yieldTo, status, owned, voices };
+  return { start, stop, unload, yieldTo, status, owned, voices, health: (ms) => health(ms) };
 }
 
-module.exports = { createKokoroLauncher, missingSetup, kokoroPython, stopAfterSeconds, kokoroDir, readVoiceNames };
+module.exports = {
+  createKokoroLauncher, missingSetup, setupState, kokoroPython, stopAfterSeconds, kokoroDir, readVoiceNames, crashBackoffMs,
+  KOKORO_PORT, KOKORO_HOST,
+};

@@ -1,11 +1,15 @@
 # VoiceDock engine API
 
-Both VoiceDock engines are small local HTTP servers that speak the same API, so the extension (and any other local client) can treat them alike.
+VoiceDock's engines sit behind one local server, the **hub**, on `http://127.0.0.1:7477`.
+The extension talks only to the hub: it lists every engine and its state (`GET /engines`), and every read goes to the hub's `POST /tts`, which reads with Piper itself or starts Kokoro on demand and passes the request on.
+So a new engine never needs a new host permission in the extension.
 
-| Engine | Server | Default address | Runs on |
+| Server | Code | Default address | Runs on |
 | --- | --- | --- | --- |
-| Piper | `servers/piper` (Node.js, Express, `piper.exe`) | `http://127.0.0.1:7477` | Windows, macOS, Linux |
-| Kokoro | `servers/kokoro` (Python, stdlib `http.server`, `kokoro-onnx`) | `http://127.0.0.1:7478` | Linux or WSL (reachable from Windows through WSL localhost mirroring) |
+| Hub and Piper | `servers/piper` (Node.js, Express, `piper.exe` per read) | `http://127.0.0.1:7477` | Windows, macOS, Linux |
+| Kokoro | `servers/kokoro` (Python, stdlib `http.server`, `kokoro-onnx`), started by the hub | `http://127.0.0.1:7478` | Windows, macOS, Linux (uv) |
+
+Kokoro's own port keeps answering for one release, for the 1.1 extension, which reads from it directly.
 
 Override the port with `PORT` / `HOST` (Piper) or `KOKORO_PORT` / `KOKORO_HOST` (Kokoro).
 The extension expects the defaults.
@@ -146,23 +150,55 @@ Kokoro's voices live in a single bundled file, so it has no equivalents.
 | `DELETE` | `/voices/:name` | Deletes `name` (a `.onnx` filename) and its `.onnx.json` config. |
 | `POST` | `/voices/open-folder` | Opens the voices folder in the OS file manager. |
 
-## Piper server: engines
+## The hub: engines
 
-The Piper server also runs Kokoro on demand (see [servers/kokoro/README.md](../servers/kokoro/README.md#run-on-demand-through-the-piper-server)).
+The hub decides when each engine runs (`servers/piper/hub/engines.js`):
+
+- **On demand.** No engine process runs at hub start. A Kokoro read, or `POST /engines/kokoro/warm` when the popup opens on a Kokoro profile, starts Kokoro.
+- **One heavy engine at a time.** Starting one stops the others once they are not speaking. Piper has no resident process (one `piper` per read), and a Piper read stops an idle Kokoro the hub started.
+- **Unload, then stop.** Kokoro releases its model after 10 idle minutes (`KOKORO_IDLE_UNLOAD_SECONDS`) and exits after 30 (`KOKORO_STOP_AFTER_SECONDS`).
+- **No browser, no engines.** Once the extension has sent a heartbeat, 5 minutes without one (`VOICEDOCK_NO_CLIENT_STOP_SECONDS`) stop every engine that is not speaking.
+- **Crashes.** A crashed Kokoro starts again on the next read, after 1, 2, 4 ... 60 s when it keeps crashing, and is `failed` after 5 crashes in 10 minutes until it is started by hand.
+- **Memory pressure** (pushed by N8 Tray): `attention` releases idle models and refuses warm-ups; `problem` stops engines that are not speaking and refuses to start Kokoro (`503`, `"reason": "low-memory"`).
+
 Same origin rule as every route.
 
 | Method | Path | Does |
 | --- | --- | --- |
-| `GET` | `/engines` | `{"engines": [piper, kokoro]}`. Kokoro's entry: `state` (`not-installed`, `stopped`, `starting`, `ready`), `startsOnDemand`, `owned` (started by this server), `pid`, `rssMb`, `modelLoaded`, `stopAfterSeconds`, and `setup` (what is missing, or null). |
-| `POST` | `/engines/kokoro/start` | Starts Kokoro if it isn't answering and replies once it does: `200 {"ok": true, "state": "ready", "owned", "startedMs"}`. `409` with `"reason": "not-installed"` when Kokoro isn't set up, `503` with `"reason": "failed"` when it didn't answer within 25 s. |
-| `POST` | `/engines/kokoro/stop` | Stops the Kokoro this server started: `{"ok": true, "stopped": true or false}`. Never stops one started elsewhere. |
-| `GET` | `/engines/kokoro/voices` | Kokoro's voices without starting it, read from its voices file: same shape as Kokoro's `GET /voices`; `404` when Kokoro isn't set up. |
+| `GET` | `/engines` | `{ api: 2, pressure, presence, policy, engines: [...] }`. Each engine: `id`, `name`, `heavy`, `state`, `installed`, `running`, `startsOnDemand`, `speaking`, `voices`, `rssMb`, `detail` (one line for people), `setup` (what is missing, or null), `coldStart` (`estimateMs` to first audio, `budgetMs`, and Kokoro's measured `processMs` and `modelLoadMs`). Kokoro also has `owned`, `pid`, `modelLoaded`, `lastError` and `stopsInSeconds`. |
+| `POST` | `/tts` | As above, plus `engine`: `"piper"` (default) or `"kokoro"`. A Kokoro read starts Kokoro if needed and waits for it. `409` with `"reason": "not-installed"`, `503` with `"reason": "low-memory"` or `"failed"`. |
+| `POST` | `/engines/:id/warm` | Starts a heavy engine without waiting: `202 {"outcome": "ok", "state": "starting", "expectedMs"}`, `200 {"outcome": "already"}`, or `409`/`503` with `"outcome": "refused"` and a `reason`. |
+| `GET` | `/engines/:id/voices` | An engine's voices. Kokoro's come from its voices file, so this never starts it; `404` when it isn't set up. |
+| `POST` | `/presence` | The extension's heartbeat: `{ "extensionVersion", "activeEngine", "reading" }`. Sent on browser start, every minute, when the popup opens and on every read. |
+| `GET` | `/hub/events` | The last 100 engine events: starts with their time to ready, stops with the reason, refusals, pressure changes. |
+| `POST` | `/engines/kokoro/start`, `/engines/kokoro/stop` | The 1.1 extension's routes, kept for one release. |
+
+| `state` | Means | The extension shows |
+| --- | --- | --- |
+| `ready` | Can read now (Kokoro: running with its model loaded) | Ready |
+| `idle` | Set up and not running, or running with its model released: starts on the next read | Starts when you read |
+| `starting` | Starting, or loading its model | Starting |
+| `stopped` | Set up, but kept off for now (low memory) | Installed but not running |
+| `failed` | Keeps crashing; `detail` says why | Installed but not running |
+| `not-installed`, `needs-setup` | Not set up, or partly (`setup` says what is missing) | Not installed |
+
+## N8 Tray: contract v2
+
+The hub follows the [N8 Tray contract v2](https://github.com/n8watkins/n8tray/blob/v0.1.0/spec/contract-v2.md), so N8 Tray can start, stop and measure it (`servers/piper/hub/n8tray.js`):
+
+- **Manifest.** `node servers/piper/n8tray-manifest.js install` writes `voicedock.json` to the per-user modules folder (`%LOCALAPPDATA%\N8Tray\modules` on Windows); `npm run setup` runs it.
+- **Token.** At every start the hub writes 64 random hex characters to `voicedock.token` in N8 Tray's runtime folder (`%LOCALAPPDATA%\N8Tray\run`), readable by this user only.
+- **Control plane.** `GET /n8/v2/status` (state, a component per engine, the extension's presence, and the memory, CPU and start time of every process the hub owns: itself, Kokoro and its venv launcher, the Piper readers), `POST /n8/v2/actions/stop`, `engine.start` and `engine.stop` (with `"component"`), and `POST /n8/v2/pressure`.
+  Every request needs `Authorization: Bearer <token>`; a request with any `Origin`, or a `Host` other than `127.0.0.1` or `localhost` with this port, gets `403`.
+
+CI runs the contract's conformance kit (`n8tray-contract check` and `probe`) against the hub on every pull request.
 
 ## Tests
 
 - `test/piper-server.test.mjs`: Piper routes, error shapes, the origin check and the memory fields while a (fake) `piper` reads (no `piper.exe` needed).
 - `test/piper-memory.test.mjs`: Piper reader tracking and memory sampling.
-- `test/kokoro-launcher.test.mjs`: Kokoro on demand (start, shared starts, stop, a Piper read stopping it) and the `/engines` routes, with a fake process.
+- `test/kokoro-launcher.test.mjs`: Kokoro on demand (start, shared starts, stop, a Piper read stopping it) and the 1.1 routes, with a fake process.
+- `test/hub.test.mjs`: the engine policy (on demand, no-heartbeat stop, pressure, crashes), the N8 Tray control plane and Kokoro reads through the hub.
 - `servers/kokoro/tests/test_server.py`: Kokoro routes, error shapes, the origin check and CORS, with a fake engine (no model needed).
 
 `npm test` runs both.

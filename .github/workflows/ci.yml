@@ -84,3 +84,57 @@ jobs:
             playwright-report/
             test-results/
           retention-days: 7
+
+  # N8 Tray contract v2 (n8watkins/n8tray, conformance kit pinned at v0.1.0):
+  # the hub's manifest passes `check`, and the running hub passes `probe`
+  # against the kit's test tray (token, auth, Origin and Host refusals, the
+  # status document, resources and ownership, pressure, an engine action).
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      N8TRAY_RUN_DIR: ${{ github.workspace }}/../n8tray/run
+      N8TRAY_MODULES_DIR: ${{ github.workspace }}/../n8tray/modules
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: servers/piper/package-lock.json
+
+      - name: Cache the conformance kit
+        id: kit
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/bin/n8tray-contract
+            ~/.cargo/bin/n8tray-fake-module
+          key: n8tray-conformance-v0.1.0-${{ runner.os }}
+
+      - name: Install the conformance kit (n8tray v0.1.0)
+        if: steps.kit.outputs.cache-hit != 'true'
+        run: cargo install --locked --git https://github.com/n8watkins/n8tray --tag v0.1.0 n8tray-conformance
+
+      - name: Install the hub
+        run: npm ci --prefix servers/piper
+
+      - name: Check the manifest
+        run: |
+          node servers/piper/n8tray-manifest.js install
+          n8tray-contract check "$N8TRAY_MODULES_DIR/voicedock.json"
+
+      - name: Probe the running hub against the test tray
+        run: |
+          n8tray-contract host --hosting voicedock --for-seconds 120 &
+          node servers/piper/server.js --managed > "$RUNNER_TEMP/hub.log" 2>&1 &
+          for i in $(seq 1 50); do curl -sf http://127.0.0.1:7477/health > /dev/null && break; sleep 0.2; done
+          n8tray-contract probe "$N8TRAY_MODULES_DIR/voicedock.json" --action engine.start --component kokoro
+          n8tray-contract probe "$N8TRAY_MODULES_DIR/voicedock.json" --action engine.stop --component kokoro
+
+      - name: The hub's log
+        if: always()
+        run: cat "$RUNNER_TEMP/hub.log" || true

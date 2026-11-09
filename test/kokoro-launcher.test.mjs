@@ -158,14 +158,17 @@ test('kokoroPython and stopAfterSeconds', () => {
   assert.equal(stopAfterSeconds({ KOKORO_STOP_AFTER_SECONDS: 'soon' }), 1800);
 });
 
-test('the Piper server exposes /engines and the Kokoro start and stop routes', async () => {
+test('the 1.1 extension routes still start and stop Kokoro through the hub', async () => {
   const { app } = require('../servers/piper/server.js');
   const real = app.locals.kokoro;
   const events = [];
+  let running = false;
   app.locals.kokoro = {
-    status: async () => ({ id: 'kokoro', state: 'stopped', startsOnDemand: true }),
-    start: async () => { events.push('start'); return { state: 'ready', owned: true, startedMs: 3100 }; },
-    stop: () => { events.push('stop'); return true; },
+    health: async () => (running ? { status: 'ok', speaking: false } : null),
+    owned: () => running,
+    status: async () => ({ id: 'kokoro', state: running ? 'ready' : 'stopped', startsOnDemand: true, owned: running }),
+    start: async () => { events.push('start'); running = true; return { state: 'ready', owned: true, startedMs: 3100 }; },
+    stop: () => { events.push('stop'); const was = running; running = false; return was; },
     yieldTo: async () => false,
   };
   const server = app.listen(0, '127.0.0.1');
@@ -174,7 +177,7 @@ test('the Piper server exposes /engines and the Kokoro start and stop routes', a
   try {
     const engines = await (await fetch(`${base}/engines`)).json();
     assert.deepEqual(engines.engines.map((e) => e.id), ['piper', 'kokoro']);
-    assert.equal(engines.engines[1].state, 'stopped');
+    assert.equal(engines.engines[1].state, 'idle', 'set up and stopped: starts when you read');
     const started = await fetch(`${base}/engines/kokoro/start`, { method: 'POST' });
     assert.equal(started.status, 200);
     assert.deepEqual(await started.json(), { ok: true, state: 'ready', owned: true, startedMs: 3100 });

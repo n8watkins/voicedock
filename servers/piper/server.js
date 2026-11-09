@@ -1,16 +1,23 @@
 /**
- * VoiceDock Piper server
+ * VoiceDock hub (and Piper server)
  *
- * Runs on http://127.0.0.1:7477 by default and speaks the shared VoiceDock
- * API (docs/API.md in the repo root):
- * GET  /health                  → { status, engine: "piper", version, rssMb, readers, ...,
+ * The front door for every VoiceDock engine, on http://127.0.0.1:7477. The
+ * extension talks only to it (docs/API.md in the repo root):
+ * GET  /health                  → { status, engine: "piper", api: 2, version, rssMb, readers, ...,
  *                                   listen: "127.0.0.1:7477", exposed: false }
- * GET  /voices                  → { engine, voices, defaultVoice, sizes, voiceDir }
- * POST /tts  { "text": "..." }  → audio/wav
- * GET  /engines                 → { engines: [piper, kokoro] } with each state
- * POST /engines/kokoro/start    → starts Kokoro on demand (see kokoro.js)
- * POST /engines/kokoro/stop     → stops the Kokoro this server started
- * GET  /engines/kokoro/voices   → Kokoro's voices, without starting it
+ * GET  /engines                 → every engine with its state, memory and cold-start figures
+ * POST /tts  { text, engine?, voice? } → audio/wav from Piper (default) or
+ *                                   Kokoro, which the hub starts on demand and proxies
+ * GET  /engines/:id/voices      → an engine's voices (Kokoro's without starting it)
+ * POST /engines/:id/warm        → start a heavy engine now, without waiting
+ * POST /presence                → the extension's heartbeat (hub/engines.js)
+ * GET  /hub/events              → recent engine starts, stops and refusals
+ * GET  /voices                  → Piper's voices (as before)
+ * /n8/v2/*                      → N8 Tray contract v2, with a token (hub/n8tray.js)
+ *
+ * For one release, the routes the 1.1 extension uses stay:
+ * POST /engines/kokoro/start, POST /engines/kokoro/stop, and Kokoro keeps
+ * answering on its own port 7478.
  *
  * Requires:
  *   piper/piper.exe on Windows, or piper/piper on macOS/Linux
@@ -27,12 +34,16 @@ const crypto  = require("crypto");
 const { spawn } = require("child_process");
 const { version } = require("./package.json");
 const { serverRssMb, createReaderTracker } = require("./memory");
-const { createKokoroLauncher } = require("./kokoro");
+const { createKokoroLauncher, KOKORO_HOST, KOKORO_PORT } = require("./kokoro");
+const { createHub } = require("./hub/engines");
+const { createControlPlane, appVersion } = require("./hub/n8tray");
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 const { PORT, HOST, isLoopbackHost, exposureWarning } = require("./config"); // shared with the tray so they agree
 const MAX_CHARS  = 8000;        // reasonable limit per request
+const KOKORO_MAX_CHARS = 4000;  // Kokoro's own limit
 const TIMEOUT_MS = 60_000;      // kill Piper if it hangs
+const MANAGED = process.argv.includes("--managed"); // started by N8 Tray
 
 // Paths can be overridden for non-standard installs or macOS/Linux setups.
 const DEFAULT_PIPER_BIN = process.platform === "win32"
@@ -61,6 +72,41 @@ function defaultVoiceFrom(voices) {
 
 // ─── App Setup ────────────────────────────────────────────────────────────────
 const app = express();
+const readers = createReaderTracker();
+
+// ─── Engines: the hub (hub/engines.js) ──────────────────────────────────────
+// app.locals.kokoro so tests can swap in a fake launcher; the hub reaches it
+// through this forwarder, so a swap applies everywhere.
+app.locals.kokoro = createKokoroLauncher();
+const kokoro = new Proxy({}, {
+  get(_target, prop) {
+    const launcher = app.locals.kokoro;
+    const value = launcher[prop];
+    return typeof value === "function" ? value.bind(launcher) : value;
+  },
+});
+app.locals.hub = createHub({
+  kokoro,
+  readers,
+  piperVoices: installedVoices,
+  piperInstalled: () => require("fs").existsSync(PIPER_BIN),
+});
+
+// N8 Tray's control plane comes first: it refuses any request with an Origin,
+// so it must not pass through the extension CORS below.
+function stopServer(reason) {
+  console.log(`[hub] stopping: ${reason}`);
+  app.locals.hub.stopAll(reason);
+  process.exit(0);
+}
+app.locals.n8 = createControlPlane({
+  hub: app.locals.hub,
+  kokoro,
+  readers,
+  onStop: (reason) => app.locals.onStop(reason),
+});
+app.locals.onStop = stopServer;
+app.use("/n8/v2", app.locals.n8.router);
 
 function isAllowedOrigin(origin) {
   // CLI tools and same-process scripts usually do not send Origin. Browser pages do.
@@ -90,7 +136,6 @@ app.use(express.json({ limit: "1mb" }));
 // ─── Health Check ─────────────────────────────────────────────────────────────
 // Also reports memory, cheaply: the Node server's RSS plus the piper children
 // reading right now (sampled in the background, see memory.js).
-const readers = createReaderTracker();
 const startedAt = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
 
 // Where the server listens, from the listening socket itself (so a test or
@@ -110,7 +155,10 @@ app.get("/health", (req, res) => {
   res.json({
     status: "ok",
     engine: "piper",
+    api: 2, // the hub: /engines lists every engine and /tts reaches each
     version,
+    appVersion: appVersion(),
+    managed: MANAGED,
     pid: process.pid,
     startedAt,
     rssMb,
@@ -120,37 +168,47 @@ app.get("/health", (req, res) => {
   });
 });
 
-// ─── Engines: Kokoro on demand (kokoro.js) ───────────────────────────────────
-// app.locals.kokoro so tests can swap in a fake launcher.
-app.locals.kokoro = createKokoroLauncher();
-
+// ─── Engines ─────────────────────────────────────────────────────────────────
 app.get("/engines", async (_req, res) => {
-  const voices = await installedVoices();
-  const piper = {
-    id: "piper",
-    state: voices.length ? "ready" : "not-installed",
-    voices: voices.length,
-    speaking: readers.snapshot().speaking,
-  };
-  res.json({ engines: [piper, await app.locals.kokoro.status()] });
+  res.set("Cache-Control", "no-store");
+  res.json(await app.locals.hub.list());
 });
 
-app.post("/engines/kokoro/start", async (_req, res) => {
-  try {
-    const result = await app.locals.kokoro.start();
-    res.json({ ok: true, state: result.state, owned: result.owned, startedMs: result.startedMs });
-  } catch (err) {
-    const notInstalled = err.code === "not-installed";
-    res.status(notInstalled ? 409 : 503).json({
-      error: notInstalled ? "Kokoro is not set up." : "Kokoro did not start.",
-      reason: notInstalled ? "not-installed" : "failed",
-      details: err.message,
-    });
-  }
+app.get("/hub/events", (_req, res) => {
+  res.set("Cache-Control", "no-store");
+  res.json({ events: app.locals.hub.events() });
 });
 
-// Kokoro's voices without starting it (read from its voices file).
-app.get("/engines/kokoro/voices", (_req, res) => {
+// The extension's heartbeat: on browser start, every minute (chrome.alarms),
+// when the popup opens and on every read. { extensionVersion, activeEngine,
+// reading }. When it stops for long enough, engines stop (hub/engines.js).
+app.post("/presence", (req, res) => {
+  res.json({ ok: true, presence: app.locals.hub.presence(req.get("Origin"), req.body || {}) });
+});
+
+const ERROR_STATUS = { "not-installed": 409, "low-memory": 503, failed: 503, unknown: 404 };
+function engineError(res, err, name) {
+  const reason = ERROR_STATUS[err.code] ? err.code : "failed";
+  const error =
+    reason === "not-installed" ? `${name} is not set up.` :
+    reason === "low-memory"    ? `Memory is low, so ${name} does not start now.` :
+    reason === "unknown"       ? "Unknown engine." :
+                                 `${name} did not start.`;
+  res.status(ERROR_STATUS[reason]).json({ error, reason, details: err.message });
+}
+
+app.post("/engines/:id/warm", async (req, res) => {
+  const result = await app.locals.hub.warm(req.params.id);
+  const status = result.outcome === "refused" ? (ERROR_STATUS[result.reason] || 409) : result.outcome === "ok" ? 202 : 200;
+  res.status(status).json(result);
+});
+
+// An engine's voices. Kokoro's come from its voices file while it is
+// stopped, so the extension can list them before the first read starts it.
+app.get("/engines/:id/voices", async (req, res, next) => {
+  const { id } = req.params;
+  if (id === "piper") return listPiperVoices(req, res);
+  if (id !== "kokoro") return next();
   try {
     const list = app.locals.kokoro.voices();
     if (!list) return res.status(404).json({ error: "Kokoro is not set up." });
@@ -160,8 +218,18 @@ app.get("/engines/kokoro/voices", (_req, res) => {
   }
 });
 
-app.post("/engines/kokoro/stop", (_req, res) => {
-  res.json({ ok: true, stopped: app.locals.kokoro.stop() });
+// The 1.1 extension's routes, for one release.
+app.post("/engines/kokoro/start", async (_req, res) => {
+  try {
+    const result = await app.locals.hub.ensure("kokoro");
+    res.json({ ok: true, state: result.state, owned: app.locals.kokoro.owned?.() ?? result.owned, startedMs: result.startedMs });
+  } catch (err) {
+    engineError(res, err, "Kokoro");
+  }
+});
+
+app.post("/engines/kokoro/stop", async (_req, res) => {
+  res.json({ ok: true, stopped: await app.locals.hub.stopEngine("kokoro", "asked over /engines/kokoro/stop") });
 });
 
 // ─── Validation Helpers ───────────────────────────────────────────────────────
@@ -270,7 +338,59 @@ function runPiper({ text, outputPath, voiceModel }) {
 }
 
 // ─── POST /tts ────────────────────────────────────────────────────────────────
+// Kokoro: started on demand, then the request is passed to its own server.
+async function kokoroTts(req, res) {
+  const text = req.body?.text;
+  const error = validateText(text);
+  if (error) return res.status(400).json({ error });
+  if (text.trim().length > KOKORO_MAX_CHARS) {
+    return res.status(400).json({ error: `Text is too long (${text.trim().length} chars). Maximum is ${KOKORO_MAX_CHARS}.` });
+  }
+  const hub = app.locals.hub;
+  hub.activity();
+  try {
+    await hub.ensure("kokoro");
+  } catch (err) {
+    return engineError(res, err, "Kokoro");
+  }
+  const body = { text: text.trim() };
+  for (const key of ["voice", "lang"]) if (typeof req.body[key] === "string" && req.body[key].trim()) body[key] = req.body[key].trim();
+  if (Number.isFinite(Number(req.body.speed))) body.speed = Number(req.body.speed);
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  // The extension aborts a prefetch when the user stops: pass that on.
+  res.on("close", () => { if (!res.writableFinished) ctrl.abort(); });
+  hub.beginRead("kokoro");
+  try {
+    const upstream = await fetch(`http://${KOKORO_HOST}:${KOKORO_PORT}/tts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: ctrl.signal,
+    });
+    const audio = Buffer.from(await upstream.arrayBuffer());
+    res.status(upstream.status);
+    res.setHeader("Content-Type", upstream.headers.get("content-type") || "application/octet-stream");
+    res.setHeader("Cache-Control", "no-store");
+    res.end(audio);
+  } catch (err) {
+    if (!res.headersSent && !ctrl.signal.aborted) {
+      res.status(502).json({ error: "Kokoro did not answer.", reason: "failed", details: err.message });
+    } else if (!res.headersSent) {
+      res.status(504).json({ error: "Kokoro took too long.", reason: "failed" });
+    }
+  } finally {
+    clearTimeout(timer);
+    hub.endRead("kokoro");
+  }
+}
+
 app.post("/tts", async (req, res) => {
+  const engine = req.body?.engine ?? "piper";
+  if (engine === "kokoro") return kokoroTts(req, res);
+  if (engine !== "piper") return res.status(400).json({ error: `Unknown engine: ${engine}` });
+  app.locals.hub.activity();
   const text  = req.body?.text;
   const voice = (req.body?.voice && req.body.voice.trim()) || defaultVoiceFrom(await installedVoices());
 
@@ -289,6 +409,9 @@ app.post("/tts", async (req, res) => {
   // Only the engine in use runs: a Piper read stops an idle Kokoro this
   // server started. Not awaited, so the read never waits on it.
   app.locals.kokoro.yieldTo("piper").catch(() => {});
+
+  app.locals.hub.beginRead("piper");
+  res.on("close", () => app.locals.hub.endRead("piper"));
 
   const cleanText  = text.trim();
   const id         = crypto.randomUUID();
@@ -351,7 +474,8 @@ app.post("/tts", async (req, res) => {
 });
 
 // ─── GET /voices  (list available voice models + sizes) ──────────────────────
-app.get("/voices", async (_req, res) => {
+app.get("/voices", (req, res) => listPiperVoices(req, res));
+async function listPiperVoices(_req, res) {
   try {
     const voices = await installedVoices();
 
@@ -368,7 +492,7 @@ app.get("/voices", async (_req, res) => {
   } catch (_) {
     res.json({ engine: "piper", voices: [], defaultVoice: PREFERRED_VOICE, sizes: {}, voiceDir: VOICE_DIR });
   }
-});
+}
 
 // ─── POST /voices/open-folder  (reveal voices directory in file manager) ──────
 app.post("/voices/open-folder", (_req, res) => {
@@ -453,8 +577,17 @@ async function cleanOutputDir() {
 async function start() {
   await cleanOutputDir();
   const defaultVoice = defaultVoiceFrom(await installedVoices());
+  // The token is written before the hub serves (contract v2, section 9).
+  let runFolder = null;
+  try {
+    runFolder = app.locals.n8.prepare();
+  } catch (err) {
+    console.warn(`[n8tray] control plane off: ${err.message}`);
+  }
+  app.locals.n8.startSampling();
+  app.locals.hub.start();
   return app.listen(PORT, HOST, () => {
-    console.log(`\n🔊 VoiceDock Piper server v${version}`);
+    console.log(`\n🔊 VoiceDock hub v${version}${MANAGED ? " (started by N8 Tray)" : ""}`);
     console.log(`   Running at http://${HOST}:${PORT}`);
     console.log(`   Health:  GET  http://${HOST}:${PORT}/health`);
     console.log(`   TTS:     POST http://${HOST}:${PORT}/tts`);
@@ -462,6 +595,7 @@ async function start() {
     console.log(`\n   Piper bin: ${PIPER_BIN}`);
     console.log(`   Voice dir: ${VOICE_DIR}`);
     console.log(`   Default voice: ${defaultVoice}`);
+    console.log(`   N8 Tray:   ${runFolder ? `/n8/v2 (token in ${runFolder})` : "off (no runtime folder)"}`);
     console.log(`\n   Press Ctrl+C to stop.\n`);
     const warning = exposureWarning(HOST, PORT);
     if (warning) console.warn(warning + "\n");
@@ -475,10 +609,7 @@ if (require.main === module) {
   // Stop the Kokoro this server started with it. (Killed outright, Kokoro
   // notices its parent is gone and exits within a few seconds by itself.)
   for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
-    process.on(signal, () => {
-      app.locals.kokoro.stop();
-      process.exit(0);
-    });
+    process.on(signal, () => stopServer(signal));
   }
   process.on("exit", () => app.locals.kokoro.stop());
 }
