@@ -152,8 +152,21 @@ test('GET /voices lists installed voices with the shared shape', async () => {
   const body = await res.json();
   assert.equal(body.engine, 'piper');
   assert.deepEqual(body.voices, ['en_US-test-medium.onnx']);
-  assert.equal(body.defaultVoice, 'en_US-ryan-high.onnx');
+  // en_US-ryan-high (the preferred default) isn't installed here, so the
+  // default is the installed voice: a fresh setup only has en_US-amy-medium.
+  assert.equal(body.defaultVoice, 'en_US-test-medium.onnx');
   assert.equal(body.sizes['en_US-test-medium.onnx'], 10);
+});
+
+test('POST /tts with no voice reads with an installed voice', { skip: process.platform === 'win32' }, async () => {
+  const res = await fetch(`${base}/tts`, {
+    method: 'POST',
+    headers: { Origin: EXT, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: 'Hello.' }),
+  });
+  assert.equal(res.status, 200);
+  const health = await (await fetch(`${base}/health`, { headers: { Origin: EXT } })).json();
+  assert.equal(health.lastVoice, 'en_US-test-medium.onnx');
 });
 
 test('a web page origin is rejected with a JSON 403', async () => {
