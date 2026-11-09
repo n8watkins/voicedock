@@ -171,7 +171,8 @@ Same origin rule as every route.
 | `GET` | `/engines/:id/voices` | An engine's voices. Kokoro's come from its voices file, so this never starts it; `404` when it isn't set up. |
 | `POST` | `/presence` | The extension's heartbeat: `{ "extensionVersion", "activeEngine", "reading" }`. Sent on browser start, every minute, when the popup opens and on every read. |
 | `GET` | `/hub/events` | The last 100 engine events: starts with their time to ready, stops with the reason, refusals, pressure changes. |
-| `POST` | `/engines/kokoro/start` | The 1.1 extension's route, kept for one release. There is no stop route here: only N8 Tray stops an engine (with the token), or the hub's own policy. |
+| `POST` | `/engines/kokoro/start` | The 1.1 extension's route, kept for one release. |
+| `POST` | `/engines/kokoro/stop` | For the PowerShell N8 Tray's n8voice, for one release: `{"ok": true, "stopped"}`. Refused (`403`) for any request with an `Origin`, so no web page or extension can stop an engine. |
 
 | `state` | Means | The extension shows |
 | --- | --- | --- |
