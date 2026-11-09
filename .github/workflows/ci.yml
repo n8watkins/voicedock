@@ -40,6 +40,9 @@ jobs:
       - name: The old product name stays gone
         run: npm run check:names
 
+      - name: The engine catalog's signature matches it
+        run: npm run catalog:verify
+
       - name: Tests (extension, Piper server, Kokoro server)
         run: npm test
 

@@ -1,0 +1,341 @@
+{
+  "catalog": 1,
+  "serial": 1,
+  "issuedAt": "2026-11-09",
+  "about": "Every download VoiceDock installs, pinned by SHA-256. Signed with the VoiceDock catalog key (engines.json.minisig, servers/catalog/voicedock-catalog.pub).",
+  "engines": {
+    "pocket": {
+      "name": "Pocket TTS",
+      "by": "Kyutai",
+      "home": "https://github.com/kyutai-labs/pocket-tts",
+      "license": {
+        "program": "MIT",
+        "model": "CC-BY-4.0",
+        "modelCard": "https://huggingface.co/kyutai/pocket-tts",
+        "voices": "https://huggingface.co/kyutai/tts-voices",
+        "terms": "Do not use it to imitate or clone a voice without the speaker's explicit and lawful consent, to deceive, or to present generated speech as a real recording."
+      },
+      "versions": [
+        {
+          "version": "4.0.1",
+          "released": "2026-10-21",
+          "programVersion": "3.3.0",
+          "program": {
+            "windows-x64": {
+              "url": "https://github.com/kyutai-labs/pocket-tts/releases/download/v4.0.1/pocket-tts-3.3.0-x86_64-pc-windows-msvc.zip",
+              "sha256": "98753041f2e65744b989776f87bccb93f1f574a08afe1890c5427ec94cd6309c",
+              "size": 7914990,
+              "format": "zip",
+              "program": "pocket-tts-3.3.0-x86_64-pc-windows-msvc/pocket-tts.exe",
+              "license": "pocket-tts-3.3.0-x86_64-pc-windows-msvc/LICENSE"
+            },
+            "linux-x64": {
+              "url": "https://github.com/kyutai-labs/pocket-tts/releases/download/v4.0.1/pocket-tts-3.3.0-x86_64-unknown-linux-gnu.tar.gz",
+              "sha256": "9abff0aa138a804e44052952d8c3bdaae247fb267ca8f4b83fe178897d1a0559",
+              "size": 8641335,
+              "format": "tar.gz",
+              "program": "pocket-tts-3.3.0-x86_64-unknown-linux-gnu/pocket-tts",
+              "license": "pocket-tts-3.3.0-x86_64-unknown-linux-gnu/LICENSE"
+            },
+            "linux-arm64": {
+              "url": "https://github.com/kyutai-labs/pocket-tts/releases/download/v4.0.1/pocket-tts-3.3.0-aarch64-unknown-linux-gnu.tar.gz",
+              "sha256": "2b9a727bffd86ea6d73370d675cbd91a7db118f11b7f5a60343c2d5da12b187a",
+              "size": 8172287,
+              "format": "tar.gz",
+              "program": "pocket-tts-3.3.0-aarch64-unknown-linux-gnu/pocket-tts",
+              "license": "pocket-tts-3.3.0-aarch64-unknown-linux-gnu/LICENSE"
+            },
+            "macos-x64": {
+              "url": "https://github.com/kyutai-labs/pocket-tts/releases/download/v4.0.1/pocket-tts-3.3.0-x86_64-apple-darwin.tar.gz",
+              "sha256": "f04baa94d4fc47a689cc9f11ca2b0ba869dc002f9e78e15d387c6ecaeb1d654b",
+              "size": 8376592,
+              "format": "tar.gz",
+              "program": "pocket-tts-3.3.0-x86_64-apple-darwin/pocket-tts",
+              "license": "pocket-tts-3.3.0-x86_64-apple-darwin/LICENSE"
+            },
+            "macos-arm64": {
+              "url": "https://github.com/kyutai-labs/pocket-tts/releases/download/v4.0.1/pocket-tts-3.3.0-aarch64-apple-darwin.tar.gz",
+              "sha256": "ee9ca6c7c000ee72c5846e3a8ba01d08f56636d94a614d2259c3f12b8fd69afa",
+              "size": 7696220,
+              "format": "tar.gz",
+              "program": "pocket-tts-3.3.0-aarch64-apple-darwin/pocket-tts",
+              "license": "pocket-tts-3.3.0-aarch64-apple-darwin/LICENSE"
+            }
+          },
+          "requires": {
+            "x64": "AVX2 (x86-64-v3)"
+          },
+          "model": {
+            "language": "english",
+            "note": "The program downloads these from Hugging Face on first use, at the pinned revisions; VoiceDock checks them against these hashes. No Hugging Face account is needed: these are the weights without voice cloning.",
+            "files": [
+              {
+                "id": "weights",
+                "hf": "kyutai/pocket-tts-without-voice-cloning/languages/english/model.safetensors@a7056f505a4a8ca72d8b5fb1440071d6f1a35739",
+                "sha256": "4c56cbd171c63e8a26ea61f5d48b8a0cd8f3c51f4652c0ab9a19bfcced8c931d",
+                "size": 219029196
+              },
+              {
+                "id": "tokenizer",
+                "hf": "kyutai/pocket-tts-without-voice-cloning/languages/english/tokenizer.json@00eac05ed3d16bdc3f6b5d598874019c34a89214",
+                "sha256": "f498428e1eafee50492f7be13dc9bfafcfc12e508cd0eb1b01c92ecd5d8c6687",
+                "size": 245020
+              }
+            ],
+            "voices": [
+              {
+                "id": "alba",
+                "hf": "kyutai/pocket-tts-without-voice-cloning/languages/english/embeddings/alba.safetensors@a3055dcb533cf2ec90458008a01e7cef550bae2a",
+                "sha256": "4206b7194018c7e345e5cfd99f147caad36285df858ea153d0188c40d9f261e5",
+                "size": 6244152
+              },
+              {
+                "id": "giovanni",
+                "hf": "kyutai/pocket-tts-without-voice-cloning/languages/english/embeddings/giovanni.safetensors@a3055dcb533cf2ec90458008a01e7cef550bae2a",
+                "sha256": "abe83e91cc6984dc7d8ae1362fe4282ec095198087db7c2519f7a42dae2d9630",
+                "size": 4130608
+              },
+              {
+                "id": "lola",
+                "hf": "kyutai/pocket-tts-without-voice-cloning/languages/english/embeddings/lola.safetensors@a3055dcb533cf2ec90458008a01e7cef550bae2a",
+                "sha256": "5be565a67bc85610d7b1d0a44fb7fb658d5d324504a4341a619ef1641f363503",
+                "size": 5457720
+              },
+              {
+                "id": "juergen",
+                "hf": "kyutai/pocket-tts-without-voice-cloning/languages/english/embeddings/juergen.safetensors@a3055dcb533cf2ec90458008a01e7cef550bae2a",
+                "sha256": "1382e92abb0abf4cd531d33d1ad4e6db0c9ebd10ab1b1533421e151f14190450",
+                "size": 6096696
+              },
+              {
+                "id": "rafael",
+                "hf": "kyutai/pocket-tts-without-voice-cloning/languages/english/embeddings/rafael.safetensors@a3055dcb533cf2ec90458008a01e7cef550bae2a",
+                "sha256": "ce295d539693b6ee3b4dc592e186661502392ceb5e403759a18c3c32acc38dd1",
+                "size": 6244152
+              },
+              {
+                "id": "estelle",
+                "hf": "kyutai/pocket-tts-without-voice-cloning/languages/english/embeddings/estelle.safetensors@a3055dcb533cf2ec90458008a01e7cef550bae2a",
+                "sha256": "c6d0487d2a3e3d830b5dc3595ee9804df4920d87beb6dca042d769474e34db75",
+                "size": 7571256
+              },
+              {
+                "id": "anna",
+                "hf": "kyutai/pocket-tts-without-voice-cloning/languages/english/embeddings/anna.safetensors@a3055dcb533cf2ec90458008a01e7cef550bae2a",
+                "sha256": "4f1a928fc92ae04367324cc5d880745c1e6680bd56bf99e5d26a1e80c2cff421",
+                "size": 7620408
+              },
+              {
+                "id": "azelma",
+                "hf": "kyutai/pocket-tts-without-voice-cloning/languages/english/embeddings/azelma.safetensors@a3055dcb533cf2ec90458008a01e7cef550bae2a",
+                "sha256": "cc09e106a1acf5fe0b4c5de61b2b7686080b7bab853f9c11bfef219801bf3126",
+                "size": 7178040
+              },
+              {
+                "id": "bill_boerst",
+                "hf": "kyutai/pocket-tts-without-voice-cloning/languages/english/embeddings/bill_boerst.safetensors@a3055dcb533cf2ec90458008a01e7cef550bae2a",
+                "sha256": "063b245f60f682a2403e4c61d2e8754e0a2916d75b2cd515cc97355a9e7a10a8",
+                "size": 6539064
+              },
+              {
+                "id": "caro_davy",
+                "hf": "kyutai/pocket-tts-without-voice-cloning/languages/english/embeddings/caro_davy.safetensors@a3055dcb533cf2ec90458008a01e7cef550bae2a",
+                "sha256": "971a47f7e655e4e377915b2862f2b1242aa4f27659ed936c85387bc2dfe17595",
+                "size": 5064504
+              },
+              {
+                "id": "charles",
+                "hf": "kyutai/pocket-tts-without-voice-cloning/languages/english/embeddings/charles.safetensors@a3055dcb533cf2ec90458008a01e7cef550bae2a",
+                "sha256": "21806203b56a8ee954b66a33fcdea636c67cd54760f20f12f7586062d9455337",
+                "size": 6195000
+              },
+              {
+                "id": "cosette",
+                "hf": "kyutai/pocket-tts-without-voice-cloning/languages/english/embeddings/cosette.safetensors@a3055dcb533cf2ec90458008a01e7cef550bae2a",
+                "sha256": "ee63b91d4614e939fa5eb24df8c43de367c552dfd60c1c6b61582a859e25298a",
+                "size": 6244152
+              },
+              {
+                "id": "eponine",
+                "hf": "kyutai/pocket-tts-without-voice-cloning/languages/english/embeddings/eponine.safetensors@a3055dcb533cf2ec90458008a01e7cef550bae2a",
+                "sha256": "897d1d697e433f4ac1f0a8957fd2d69b073e316935c681fe488a7bf63a2b9a7b",
+                "size": 6932280
+              },
+              {
+                "id": "eve",
+                "hf": "kyutai/pocket-tts-without-voice-cloning/languages/english/embeddings/eve.safetensors@a3055dcb533cf2ec90458008a01e7cef550bae2a",
+                "sha256": "d31289743fdf306517925afb91e99c27b4d336c127013d2c4d1212791a41cf37",
+                "size": 6145848
+              },
+              {
+                "id": "fantine",
+                "hf": "kyutai/pocket-tts-without-voice-cloning/languages/english/embeddings/fantine.safetensors@a3055dcb533cf2ec90458008a01e7cef550bae2a",
+                "sha256": "a1803e41334934b199f4c7a2a4cec1069a75c0b3cb100e3cc3b5e76f0b07dd9e",
+                "size": 6440760
+              },
+              {
+                "id": "george",
+                "hf": "kyutai/pocket-tts-without-voice-cloning/languages/english/embeddings/george.safetensors@a3055dcb533cf2ec90458008a01e7cef550bae2a",
+                "sha256": "fc5ff4439cbbb532b69d2762524b55844e03352102f13376f2fa00443bc04090",
+                "size": 5900088
+              },
+              {
+                "id": "jane",
+                "hf": "kyutai/pocket-tts-without-voice-cloning/languages/english/embeddings/jane.safetensors@a3055dcb533cf2ec90458008a01e7cef550bae2a",
+                "sha256": "495ff63b1757ceb68a7a8e2d369b780e9d60dcd98a25ef784e246c65c9af4d90",
+                "size": 7325496
+              },
+              {
+                "id": "jean",
+                "hf": "kyutai/pocket-tts-without-voice-cloning/languages/english/embeddings/jean.safetensors@a3055dcb533cf2ec90458008a01e7cef550bae2a",
+                "sha256": "2d720746d3f2ec131b4dd67c0b101af7a7006798511bb975c707788e9a2467fc",
+                "size": 6096696
+              },
+              {
+                "id": "javert",
+                "hf": "kyutai/pocket-tts-without-voice-cloning/languages/english/embeddings/javert.safetensors@a3055dcb533cf2ec90458008a01e7cef550bae2a",
+                "sha256": "f60f4603404152370ae5ad4d01fa9ad3e1afd3a5df6122aa3dd88ed95fbfd6f8",
+                "size": 6145848
+              },
+              {
+                "id": "marius",
+                "hf": "kyutai/pocket-tts-without-voice-cloning/languages/english/embeddings/marius.safetensors@a3055dcb533cf2ec90458008a01e7cef550bae2a",
+                "sha256": "6fd2496993221be51edc027820fa465b67221d7e369b8caeab40076040d561dd",
+                "size": 6244152
+              },
+              {
+                "id": "mary",
+                "hf": "kyutai/pocket-tts-without-voice-cloning/languages/english/embeddings/mary.safetensors@a3055dcb533cf2ec90458008a01e7cef550bae2a",
+                "sha256": "f05824557190fe66e39837337d65c6c400aa54920bae316e1245eeb4cd447b8b",
+                "size": 5949240
+              },
+              {
+                "id": "michael",
+                "hf": "kyutai/pocket-tts-without-voice-cloning/languages/english/embeddings/michael.safetensors@a3055dcb533cf2ec90458008a01e7cef550bae2a",
+                "sha256": "188f29bf53aca645d77accd44455b494a28e17d94b1658fbaec80f679371ad13",
+                "size": 7128888
+              },
+              {
+                "id": "paul",
+                "hf": "kyutai/pocket-tts-without-voice-cloning/languages/english/embeddings/paul.safetensors@a3055dcb533cf2ec90458008a01e7cef550bae2a",
+                "sha256": "02b77e48b791c7ece818d7f85b98459bc8dc035104e6327635053ffb56898050",
+                "size": 6833976
+              },
+              {
+                "id": "peter_yearsley",
+                "hf": "kyutai/pocket-tts-without-voice-cloning/languages/english/embeddings/peter_yearsley.safetensors@a3055dcb533cf2ec90458008a01e7cef550bae2a",
+                "sha256": "7410cc6531929ea0ea7daa3a3f083a78239701df31acc60583172585a9304c3e",
+                "size": 3639088
+              },
+              {
+                "id": "stuart_bell",
+                "hf": "kyutai/pocket-tts-without-voice-cloning/languages/english/embeddings/stuart_bell.safetensors@a3055dcb533cf2ec90458008a01e7cef550bae2a",
+                "sha256": "6ccec2880941cd132a9997798c8b0350d3dd547c890e45024873a85b017e5b39",
+                "size": 5064504
+              },
+              {
+                "id": "vera",
+                "hf": "kyutai/pocket-tts-without-voice-cloning/languages/english/embeddings/vera.safetensors@a3055dcb533cf2ec90458008a01e7cef550bae2a",
+                "sha256": "6deb7eb7606810edbba1c9639376d6750a8f441e464e279c43341debf5c29765",
+                "size": 6686520
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "kokoro": {
+      "name": "Kokoro",
+      "by": "hexgrad; kokoro-onnx by thewh1teagle",
+      "home": "https://github.com/thewh1teagle/kokoro-onnx",
+      "license": {
+        "program": "MIT",
+        "model": "Apache-2.0"
+      },
+      "versions": [
+        {
+          "version": "1.0",
+          "files": [
+            {
+              "id": "model",
+              "url": "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx",
+              "sha256": "7d5df8ecf7d4b1878015a32686053fd0eebe2bc377234608764cc0ef3636a6c5",
+              "size": 325532387
+            },
+            {
+              "id": "voices",
+              "url": "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin",
+              "sha256": "bca610b8308e8d99f32e6fe4197e7ec01679264efed0cac9140fe9c29f1fbf7d",
+              "size": 28214398
+            }
+          ]
+        }
+      ]
+    },
+    "piper": {
+      "name": "Piper",
+      "by": "Rhasspy",
+      "home": "https://github.com/rhasspy/piper",
+      "license": {
+        "program": "MIT",
+        "voices": "https://huggingface.co/rhasspy/piper-voices (per voice)"
+      },
+      "versions": [
+        {
+          "version": "2023.11.14-2",
+          "program": {
+            "windows-x64": {
+              "url": "https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_windows_amd64.zip",
+              "sha256": "f3c58906402b24f3a96d92145f58acba6d86c9b5db896d207f78dc80811efcea",
+              "size": 22477236,
+              "format": "zip",
+              "program": "piper/piper.exe"
+            },
+            "linux-x64": {
+              "url": "https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_x86_64.tar.gz",
+              "sha256": "a50cb45f355b7af1f6d758c1b360717877ba0a398cc8cbe6d2a7a3a26e225992",
+              "size": 26460462,
+              "format": "tar.gz",
+              "program": "piper/piper"
+            },
+            "linux-arm64": {
+              "url": "https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_aarch64.tar.gz",
+              "sha256": "fea0fd2d87c54dbc7078d0f878289f404bd4d6eea6e7444a77835d1537ab88eb",
+              "size": 26004717,
+              "format": "tar.gz",
+              "program": "piper/piper"
+            },
+            "macos-x64": {
+              "url": "https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_macos_x64.tar.gz",
+              "sha256": "ced85c0a3df13945b1e623b878a48fdc2854d5c485b4b67f62857cf551deaf8b",
+              "size": 19146927,
+              "format": "tar.gz",
+              "program": "piper/piper"
+            },
+            "macos-arm64": {
+              "url": "https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_macos_aarch64.tar.gz",
+              "sha256": "6b1eb03b3735946cb35216e063e7eebcc33a6bbf5dd96ec0217959bf1cdcb0cc",
+              "size": 19146957,
+              "format": "tar.gz",
+              "program": "piper/piper"
+            }
+          },
+          "files": [
+            {
+              "id": "en_US-amy-medium.onnx",
+              "url": "https://huggingface.co/rhasspy/piper-voices/resolve/cf910fb59f1d79ab3b625a63993a108751c6c25d/en/en_US/amy/medium/en_US-amy-medium.onnx",
+              "sha256": "cf9ccdec59f05adee47173f6fb4d89e8b0c5f30c178748d2572fe4efd1d2724c",
+              "size": 63221984
+            },
+            {
+              "id": "en_US-amy-medium.onnx.json",
+              "url": "https://huggingface.co/rhasspy/piper-voices/resolve/cf910fb59f1d79ab3b625a63993a108751c6c25d/en/en_US/amy/medium/en_US-amy-medium.onnx.json",
+              "sha256": "8c9b8aa3ee122c6a63678bd68e586a067c6775116d32e13b7ec919520d8948bf",
+              "size": 5465
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
