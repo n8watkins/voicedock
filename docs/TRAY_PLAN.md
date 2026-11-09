@@ -1,7 +1,7 @@
 # N8 Tray: the `n8voice` module for both engines
 
 Status: built.
-The module lives in the N8 Tray repo at `C:\Users\natha\scripts\n8tray\n8voice` (n8watkins/n8tray#6, N8 Tray 0.12.0) and replaced `n8piper` on 2026-11-02.
+The module lives in the N8 Tray repo at `C:\Users\natha\scripts\n8tray\n8voice` (n8watkins/n8tray-modules#6, N8 Tray 0.12.0; the repo was named `n8tray` until 2026-11-09) and replaced `n8piper` on 2026-11-02.
 Its README there is the reference for settings and behavior; this page records the design and the decisions behind it.
 
 ## Goal
