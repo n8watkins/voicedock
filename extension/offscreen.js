@@ -19,7 +19,7 @@ let currentRate = 1.0;   // updated by speak-text and set-rate; applied live + t
 let currentEngine = "piper"; // engine of the active speak-text request
 let jumpTo = null;           // sentence index a skip asked for, taken by playQueue
 
-const ENGINE_LABELS = { piper: "Piper", kokoro: "Kokoro" };
+const ENGINE_LABELS = { piper: "Piper", kokoro: "Kokoro", pocket: "Pocket TTS" };
 const engineLabel = (engine) => ENGINE_LABELS[engine] || "TTS";
 
 function sendProgress(current, total, label = "") {

@@ -42,7 +42,8 @@ function loadCatalog({ dir = CATALOG_DIR, publicKey = PUBLIC_KEY, minSerial = 0,
   try {
     ({ trustedComment } = minisign.verify(Buffer.from(data), signature, publicKey));
   } catch (err) {
-    throw new Error(`The engine catalog's signature is not valid: ${err.message}`);
+    const crlf = Buffer.from(data).includes("\r\n");
+    throw new Error(`The engine catalog's signature is not valid: ${err.message}${crlf ? " (its line endings were changed to CRLF, as Git's core.autocrlf does; check it out again with the repo's .gitattributes)" : ""}`);
   }
   const catalog = JSON.parse(Buffer.from(data).toString("utf8"));
   if (!Number.isInteger(catalog.serial) || !trustedComment.includes(`serial:${catalog.serial} `)) {

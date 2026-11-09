@@ -167,7 +167,7 @@ function summaryFor(components) {
  * The control plane. hub: hub/engines.js. kokoro: the launcher, for its
  * processes. readers: the Piper reader tracker. onStop: ends the process.
  */
-function createControlPlane({ hub, kokoro, pocket = null, readers, onStop, now = Date.now, version = appVersion() }) {
+function createControlPlane({ hub, kokoro, pocket = null, readers, onStop, onPressurePushed = () => {}, now = Date.now, version = appVersion() }) {
   const startedMs = selfStartMs();
   const cpu = createCpuMeter();
   let token = null;
@@ -360,7 +360,8 @@ function createControlPlane({ hub, kokoro, pocket = null, readers, onStop, now =
   router.post("/pressure", async (req, res) => {
     const level = req.body?.level;
     try {
-      await hub.setPressure(level);
+      await hub.setPressure(level, { source: "n8tray" });
+      onPressurePushed(level);
       await sample().catch(() => {});
       res.json({ outcome: "ok" });
     } catch (_) {

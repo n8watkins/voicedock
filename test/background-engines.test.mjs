@@ -326,7 +326,7 @@ test('install runs the settings migration', async () => {
   for (const fn of listeners['runtime.onInstalled']) fn({ reason: 'update' });
   await new Promise((r) => setTimeout(r, 20));
   assert.equal(store.profiles[0].engine, 'piper');
-  assert.deepEqual(store.favoritesByEngine, { piper: ['en_US-amy-medium.onnx'], kokoro: [] });
+  assert.deepEqual(store.favoritesByEngine, { piper: ['en_US-amy-medium.onnx'], kokoro: [], pocket: [] });
   assert.equal(store.fallback, true);
   assert.equal('favorites' in store, false);
 });

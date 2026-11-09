@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "VoiceDock",
   "version": "1.1.0",
-  "description": "Select text and hear it read aloud: Chrome's built-in voice right away, or natural Piper and Kokoro voices on your own computer.",
+  "description": "Select text and hear it read aloud with Chrome's own voice, or natural Piper, Kokoro and Pocket TTS voices on your computer.",
   "permissions": [
     "activeTab",
     "alarms",

@@ -31,7 +31,7 @@ test('an engine the hub reports set up is remembered, so with the hub down it is
   test.skip(onlyOnce(testInfo));
   const page = await openOptions('engines');
   await expect(kokoroRow(page).locator('.vd-status')).toHaveText('Ready');
-  await expect.poll(async () => Object.keys(await serviceWorker.evaluate(async () => (await chrome.storage.local.get('engineSeen')).engineSeen || {})).sort()).toEqual(['kokoro', 'piper']);
+  await expect.poll(async () => Object.keys(await serviceWorker.evaluate(async () => (await chrome.storage.local.get('engineSeen')).engineSeen || {})).sort()).toEqual(['kokoro', 'piper', 'pocket']);
   engines.piper.set('stopped'); // the whole hub is down
   await page.reload();
   await expect(kokoroRow(page).locator('.vd-status')).toHaveText('Not running');
@@ -83,3 +83,36 @@ for (const [name, mode] of [['setup-kokoro', 'stopped'], ['start-kokoro', 'off']
     await expect(page).toHaveScreenshot(`options-${name}.png`, { animations: 'disabled' });
   });
 }
+
+// Pocket TTS: its guided setup, and the engine history after a Pocket read.
+test('setup panel: setup-pocket', async ({ engines, openOptions, seed }) => {
+  await seed({ profiles: [{ id: 'a', name: 'Articles', engine: 'piper', voice: 'en_US-ryan-high.onnx', rate: 1, volume: 1 }], activeId: 'a' });
+  engines.pocket.set('stopped');
+  const page = await openOptions('engines:pocket');
+  const drawer = page.getByRole('dialog');
+  await expect(drawer).toContainText('node engines.js install pocket');
+  await expect(drawer).toContainText('node engines.js model pocket');
+  await expect(drawer.locator('.drawer-live')).toContainText('Waiting for Pocket TTS');
+  await page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running' || a.effect?.getTiming().iterations === Infinity));
+  await expect(page).toHaveScreenshot('options-setup-pocket.png', { animations: 'disabled' });
+});
+
+test('engine history: Pocket voices and what the hub did', async ({ engines, openOptions, seed }) => {
+  await seed({
+    profiles: [{ id: 'a', name: 'Stories', engine: 'pocket', voice: 'marius', rate: 1, volume: 1 }],
+    activeId: 'a',
+  });
+  await fetch('http://127.0.0.1:7477/engines/pocket/warm', { method: 'POST' });
+  await expect.poll(() => engines.pocket.state.mode).toBe('running');
+  engines.hub.events.push({ at: '2026-11-09T18:10:00.000Z', type: 'stop', engine: 'kokoro', reason: 'Pocket TTS became active' });
+  const page = await openOptions('engines', { width: 1100, height: 900 });
+  await page.getByRole('radio', { name: /Pocket/ }).click();
+  await expect(page.locator('.voice-card')).toHaveCount(26);
+  await page.getByText('Engine history').click();
+  const history = page.locator('.history-list li');
+  await expect(history).toHaveCount(3);
+  await expect(history.first()).toContainText('Kokoro stopped: Pocket TTS became active');
+  await expect(history.nth(1)).toContainText('Pocket TTS ready in 0.3 s');
+  await page.locator('.engine-history').scrollIntoViewIfNeeded();
+  await expect(page.locator('.engine-history')).toHaveScreenshot('options-engine-history.png', { mask: [page.locator('.history-list time')] });
+});

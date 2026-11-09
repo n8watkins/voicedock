@@ -10,18 +10,21 @@ import {
   TTS_URL,
   SETTINGS_VERSION,
   chooseEngine,
+  describeEngineEvent,
   describeProfileVoice,
   favoritesFor,
   formatVoiceName,
   inferEngine,
   kokoroVoiceDetails,
+  pocketVoiceDetails,
   migrateSettings,
   normalizeProfile,
   runSettingsMigration,
 } from '../extension/src/shared.js';
+import { buildVoiceCatalog } from '../extension/src/voices.js';
 
 test('every local engine is reached through the hub', () => {
-  assert.deepEqual(ENGINE_IDS, ['piper', 'kokoro', 'browser']);
+  assert.deepEqual(ENGINE_IDS, ['piper', 'kokoro', 'pocket', 'browser']);
   assert.equal(HUB_URL, 'http://127.0.0.1:7477');
   assert.equal(TTS_URL, 'http://127.0.0.1:7477/tts');
   assert.equal(ENGINES.browser.local, false);
@@ -128,6 +131,7 @@ test('migrateSettings upgrades 1.0.x settings', () => {
   assert.deepEqual(set.favoritesByEngine, {
     piper: ['en_US-ryan-high.onnx', 'en_GB-alan-medium.onnx'],
     kokoro: [],
+    pocket: [],
   });
   assert.equal(set.fallback, false);
   assert.equal(set.settingsVersion, SETTINGS_VERSION);
@@ -155,7 +159,7 @@ test('migrateSettings is idempotent', () => {
 
 test('migrateSettings seeds an empty install', () => {
   assert.deepEqual(migrateSettings({}), {
-    set: { favoritesByEngine: { piper: [], kokoro: [] }, settingsVersion: SETTINGS_VERSION },
+    set: { favoritesByEngine: { piper: [], kokoro: [], pocket: [] }, settingsVersion: SETTINGS_VERSION },
     remove: [],
   });
 });
@@ -184,11 +188,33 @@ test('migrateSettings merges legacy favorites into an already-seeded map', () =>
     favorites: ['en_US-ryan-high.onnx', 'af_heart'],
     favoritesByEngine: { piper: [], kokoro: ['bf_emma'] },
   });
-  assert.deepEqual(set.favoritesByEngine, { piper: ['en_US-ryan-high.onnx'], kokoro: ['bf_emma', 'af_heart'] });
+  assert.deepEqual(set.favoritesByEngine, { piper: ['en_US-ryan-high.onnx'], kokoro: ['bf_emma', 'af_heart'], pocket: [] });
   assert.ok(remove.includes('favorites'));
 });
 
 test('describeProfileVoice compact form fits the popup', () => {
   assert.equal(describeProfileVoice({ engine: 'kokoro', voice: 'bf_emma' }, { compact: true }), 'Kokoro · Emma');
   assert.equal(describeProfileVoice({ voice: 'en_US-ryan-high.onnx' }, { compact: true }), 'Piper · Ryan · High');
+});
+
+test('Pocket TTS voices read as names, with the speaker for the five from other languages', () => {
+  assert.deepEqual(pocketVoiceDetails('bill_boerst'), { name: 'Bill Boerst', language: 'English', baseLanguage: 'English', accent: '' });
+  assert.equal(pocketVoiceDetails('giovanni').accent, 'Italian speaker');
+  assert.equal(pocketVoiceDetails('af_heart'), null);
+  assert.equal(describeProfileVoice({ engine: 'pocket', voice: 'stuart_bell' }), 'Pocket TTS · Stuart Bell');
+  assert.equal(describeProfileVoice({ engine: 'pocket', voice: '' }), 'Pocket TTS · default voice');
+  const rows = buildVoiceCatalog({ pocket: ['alba', 'lola'] });
+  assert.deepEqual(rows.filter((r) => r.engine === 'pocket').map((r) => [r.name, r.meta, r.language]), [['Alba', 'English', 'English'], ['Lola', 'English · Spanish speaker', 'English']]);
+});
+
+test('engine history lines say what happened, never what was read', () => {
+  const line = (e) => describeEngineEvent(e).text;
+  assert.equal(line({ type: 'start', engine: 'pocket' }), 'Pocket TTS starting');
+  assert.equal(line({ type: 'ready', engine: 'pocket', startedMs: 512 }), 'Pocket TTS ready in 0.5 s');
+  assert.equal(line({ type: 'stop', engine: 'kokoro', reason: 'Pocket TTS became active' }), 'Kokoro stopped: Pocket TTS became active');
+  assert.equal(line({ type: 'refused', engine: 'kokoro', reason: 'low-memory' }), 'Kokoro not started: memory is low');
+  assert.equal(describeEngineEvent({ type: 'refused', engine: 'kokoro' }).tone, 'warn');
+  assert.equal(line({ type: 'pressure', level: 'attention' }), 'Memory is getting low: idle engines stop');
+  assert.equal(line({ type: 'presence-first', version: '1.2.0' }), 'The extension checked in (1.2.0)');
+  assert.equal(line(null), 'event');
 });

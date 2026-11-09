@@ -1,0 +1,3 @@
+# The signed engine catalog is checked byte for byte against its signature,
+# so Git must never convert its line endings (core.autocrlf on Windows).
+servers/catalog/** -text
