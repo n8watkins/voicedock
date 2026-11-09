@@ -47,7 +47,7 @@ voicedock/                      (VoiceDock)
 │   ├── manifest.json
 │   ├── background.js           Service worker: menus, shortcuts, engine choice, fallback
 │   ├── offscreen.html/.js      Hidden page that fetches and plays engine audio (MV3 requirement)
-│   ├── content.js              On-page overlay (progress, live speed and volume)
+│   ├── content.js              Page script injected on demand: selection, player bar (progress, live speed and volume), hints
 │   ├── src/                    React source for popup and options, plus shared.js
 │   ├── dist/                   Built React bundles loaded by Chrome
 │   └── popup.*, options.*, icons/
@@ -266,6 +266,11 @@ background.js: which engine does the active profile use?
 ```
 
 Manifest V3 service workers can't play audio, so engine audio is played by an **offscreen document**, a hidden page that can use `new Audio()`.
+
+VoiceDock has no content script on every site.
+When you read from a page (the right-click menu or the shortcut), Chrome grants the extension `activeTab` for that tab, and `background.js` injects `content.js` into it with `chrome.scripting` for the selection, the player bar and short hints.
+The player bar shows on the page you started reading from; the popup and the shortcuts control playback from anywhere.
+Pages Chrome doesn't let extensions script (`chrome://` pages, the Chrome Web Store, the PDF viewer) get no player bar; where Chrome offers the right-click menu there (the PDF viewer), it still reads.
 Both servers implement the same small API, documented in [docs/API.md](docs/API.md).
 
 ---

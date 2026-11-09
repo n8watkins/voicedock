@@ -39,7 +39,8 @@ function makeChromeShim() {
     },
     commands: { onCommand: event('commands.onCommand') },
     tts: { stop() {}, speak() {}, pause() {}, resume() {} },
-    tabs: { query: () => {}, sendMessage: async () => {} },
+    tabs: { query: async () => [], sendMessage: async () => {}, onRemoved: event('tabs.onRemoved') },
+    scripting: { executeScript: async () => [] },
     offscreen: { createDocument: async () => {} },
   };
 }
