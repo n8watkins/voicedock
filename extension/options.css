@@ -794,7 +794,9 @@ code, kbd, pre { font-family: var(--f-mono); }
 @media (max-width: 760px) {
   .page { grid-template-columns: minmax(0, 1fr); gap: 0; padding: 0 16px; }
   .side { position: static; padding: 14px 0 0; gap: 10px; }
-  .side-nav { display: flex; overflow-x: auto; scrollbar-width: none; gap: 4px; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+  /* Every tab stays visible: no icons, and the row wraps when it must. */
+  .side-nav { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+  .side-nav .tab svg { display: none; }
   .side-engines { display: flex; gap: 14px; border-top: 0; padding: 0 8px; }
   .header-engine { justify-content: flex-start; }
   .main { padding-top: 16px; }
@@ -865,7 +867,83 @@ code, kbd, pre { font-family: var(--f-mono); }
 .engine-facts dt { color: var(--muted); font-weight: 600; }
 .engine-facts dd { color: var(--ink); }
 .engine-facts code { font-size: 12px; }
-.engine-card-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.engine-card-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.engine-card.state-missing { border-style: dashed; }
+.engine-card-blurb { font-size: 13px; color: var(--muted); line-height: 1.45; margin-top: -4px; }
+.engine-facts { grid-template-columns: 84px 1fr; }
+.engine-facts .fact-sub { color: var(--faint); }
+.engine-detail { overflow-wrap: anywhere; }
+.btn-link { background: none; border-color: transparent; color: var(--accent); padding-inline: 4px; }
+.btn-link:hover:not(:disabled) { text-decoration: underline; }
+
+/* ─── Voices & Engines ─────────────────────────────────────────────────────── */
+.engines-checked { margin-left: auto; }
+.fallback-group { margin-top: 14px; display: grid; gap: 14px; }
+.fallback-group .setting-row + .setting-row { margin-top: 0; }
+.basic-row { display: flex; align-items: center; gap: 12px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+.basic-row-text { flex: 1; min-width: 0; }
+.basic-row-title { display: flex; align-items: center; gap: 8px; }
+.basic-row-title b { font: 700 14px/1.2 var(--f-display); color: var(--ink); }
+.drawer:focus { outline: none; }
+.voices-toolbar { margin-top: 26px; margin-bottom: 10px; }
+.voices-toolbar .section-title { margin: 0; }
+.welcome-setup { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+
+/* A switch: the native checkbox, drawn as a track and knob. */
+.setting-row input.switch {
+  appearance: none; -webkit-appearance: none; flex-shrink: 0;
+  width: 34px; height: 20px; margin-top: 1px; border-radius: 999px;
+  background: var(--surface-3); border: 1px solid var(--control);
+  position: relative; transition: background 0.15s, border-color 0.15s;
+}
+.setting-row input.switch::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%;
+  background: var(--surface); box-shadow: 0 1px 2px rgb(0 0 0 / 0.25); transition: transform 0.15s;
+}
+.setting-row input.switch:checked { background: var(--accent); border-color: var(--accent); }
+.setting-row input.switch:checked::after { transform: translateX(14px); background: var(--accent-ink); }
+.setting-row input.switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ─── Guided setup panel ───────────────────────────────────────────────────── */
+.drawer-scrim {
+  position: fixed; inset: 0; z-index: 50; background: var(--scrim);
+  display: flex; justify-content: flex-end; animation: drawer-fade 0.16s ease-out;
+}
+.drawer {
+  width: min(520px, 100vw); height: 100%; background: var(--bg); box-shadow: var(--shadow-pop);
+  display: grid; grid-template-rows: auto minmax(0, 1fr) auto; animation: drawer-in 0.2s ease-out;
+}
+.drawer-head {
+  display: flex; align-items: center; gap: 12px; padding: 18px 20px;
+  border-bottom: 1px solid var(--line); background: var(--surface);
+}
+.drawer-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; flex: 1; }
+.drawer-title h2 { font: 700 18px/1.2 var(--f-display); color: var(--ink); }
+.drawer-body { overflow-y: auto; padding: 18px 20px; display: grid; gap: 12px; align-content: start; }
+.drawer-why {
+  display: flex; gap: 8px; align-items: flex-start; font-size: 13px; color: var(--ink);
+  padding: 10px 12px; border-radius: var(--r-m); background: var(--warn-soft);
+}
+.drawer-why svg { color: var(--warn); margin-top: 2px; flex-shrink: 0; }
+.drawer-live {
+  display: flex; align-items: center; gap: 10px 12px; flex-wrap: wrap; padding: 14px 20px;
+  border-top: 1px solid var(--line); background: var(--surface); font-size: 13px; color: var(--ink);
+}
+.drawer-live .setting-desc { display: inline; }
+.drawer-live-text { flex: 1 1 240px; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.drawer-live-actions { display: flex; gap: 8px; }
+.drawer-live.is-ready { background: var(--ok-soft); }
+.drawer-live.is-ready .drawer-live-text svg { color: var(--ok); align-self: center; }
+.live-dot {
+  width: 8px; height: 8px; border-radius: 50%; background: var(--warn); flex-shrink: 0; align-self: center;
+  animation: vd-pulse 1.4s ease-in-out infinite;
+}
+@keyframes drawer-in { from { transform: translateX(24px); opacity: 0; } }
+@keyframes drawer-fade { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .drawer, .drawer-scrim, .live-dot { animation: none; }
+  .setting-row input.switch, .setting-row input.switch::after { transition: none; }
+}
 
 /* ─── Setup guide ──────────────────────────────────────────────────────────── */
 .setup-guide { display: grid; gap: 12px; }

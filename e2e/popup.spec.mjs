@@ -138,7 +138,7 @@ test('popup: an engine that never answered reads Not installed', async ({ contex
   await expect(picker.locator('.setup-note')).toContainText("Kokoro isn't set up on this computer yet.");
   const opened = context.waitForEvent('page');
   await picker.getByRole('button', { name: 'Set up Kokoro' }).click();
-  expect((await opened).url()).toMatch(/options\.html#settings:kokoro$/);
+  expect((await opened).url()).toMatch(/options\.html#engines:kokoro$/);
 });
 
 test.describe('reading from a page', () => {

@@ -40,9 +40,9 @@ function openSettings(hash = 'settings') {
 }
 
 // Where an engine's "Set up" or "How to start" goes: the setup steps for that
-// engine on the Settings page.
+// engine in Voices & Engines (the guided setup panel).
 function setupHash(engine) {
-  return engine === 'browser' ? 'settings' : `settings:${engine}`;
+  return engine === 'browser' ? 'engines' : `engines:${engine}`;
 }
 
 function sendMessage(message) {
@@ -253,7 +253,7 @@ function PopupApp() {
     const trimmed = name.trim();
     if (!trimmed) return false;
     if (profiles.length >= MAX_PROFILES) {
-      setNote({ tone: 'warn', text: `${MAX_PROFILES} profiles max. Delete one in Settings first.` });
+      setNote({ tone: 'warn', text: `${MAX_PROFILES} profiles max. Delete one in Profiles first.` });
       return false;
     }
     if (profiles.some((p) => p.name.toLowerCase() === trimmed.toLowerCase())) {
@@ -282,7 +282,7 @@ function PopupApp() {
         activeId={active?.id}
         onSelect={selectProfile}
         onAdd={() => (profiles.length >= MAX_PROFILES
-          ? setNote({ tone: 'warn', text: `${MAX_PROFILES} profiles max. Delete one in Settings first.` })
+          ? setNote({ tone: 'warn', text: `${MAX_PROFILES} profiles max. Delete one in Profiles first.` })
           : setNewProfileOpen(true))}
       />
       {newProfileOpen && <NewProfileForm onSave={createProfile} onClose={() => setNewProfileOpen(false)} />}

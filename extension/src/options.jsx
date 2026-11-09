@@ -22,33 +22,37 @@ import {
   HUB_URL,
   engineState,
   qualityFromFilename,
+  startSeconds,
   runSettingsMigration,
   uuid,
   voicesUrl,
 } from './shared.js';
 import { EngineMono, EngineStatus, Icon, useEngines } from './ui.jsx';
 import { EnginePills, VoiceList } from './picker.jsx';
-import { detectOs, NOT_RUNNING_HELP, OS_IDS, OS_LABEL, SETUP_FACTS, setupSteps } from './setup.js';
+import { detectOs, NOT_RUNNING_HELP, OS_IDS, OS_LABEL, SETUP_FACTS, setupSteps, startSteps } from './setup.js';
 import { buildVoiceCatalog, ENGINE_ORDER, rowForProfile, voiceKey } from './voices.js';
 
-const TABS = ['welcome', 'profiles', 'voices', 'settings', 'about', 'credits'];
+const TABS = ['welcome', 'profiles', 'engines', 'shortcuts', 'about', 'credits'];
 const TAB_META = {
   welcome: { label: 'Get started', icon: 'compass' },
   profiles: { label: 'Profiles', icon: 'users' },
-  voices: { label: 'Voices', icon: 'wave' },
-  settings: { label: 'Settings', icon: 'settings' },
+  engines: { label: 'Voices & Engines', icon: 'wave' },
+  shortcuts: { label: 'Shortcuts', icon: 'keyboard' },
   about: { label: 'How it works', icon: 'info' },
   credits: { label: 'Credits', icon: 'heart' },
 };
+// Older links: the Voices and Settings tabs are now Voices & Engines.
+const TAB_ALIASES = { voices: 'engines', settings: 'engines' };
 const SAMPLE_TEXT = 'VoiceDock reads the text you select on any web page. Pick a few sentences, right-click, and choose Read selection.';
 const CHROME_COMMANDS = [
   ['read-selection', 'Read or stop'],
   ['pause-resume', 'Pause or resume'],
 ];
 
-// "#settings:kokoro" opens Settings with Kokoro's setup steps.
+// "#engines:kokoro" opens Voices & Engines with Kokoro's guided setup.
 function routeFromHash() {
-  const [route = '', engine = ''] = window.location.hash.replace(/^#\/?/, '').toLowerCase().split(':');
+  const [raw = '', engine = ''] = window.location.hash.replace(/^#\/?/, '').toLowerCase().split(':');
+  const route = TAB_ALIASES[raw] || raw;
   return {
     tab: TABS.includes(route) ? route : 'profiles',
     engine: LOCAL_ENGINE_IDS.includes(engine) ? engine : '',
@@ -81,7 +85,8 @@ function Modal({ modal, onConfirm, onCancel }) {
 
 function OptionsApp() {
   const [tab, setTab] = useState(() => routeFromHash().tab);
-  const [setupEngine, setSetupEngine] = useState(() => routeFromHash().engine || 'piper');
+  // The guided setup panel's engine, or '' when it is closed.
+  const [drawer, setDrawer] = useState(() => routeFromHash().engine);
   const [browserVoices, setBrowserVoices] = useState([]);
   const [version, setVersion] = useState('');
   const [profiles, setProfiles] = useState([]);
@@ -95,7 +100,9 @@ function OptionsApp() {
   const [voiceSizes, setVoiceSizes] = useState({});
   const [voiceDir, setVoiceDir] = useState('');
   const [voiceLoadError, setVoiceLoadError] = useState(() => emptyEngineMap(''));
-  const { engines, recheck } = useEngines();
+  // Live while it matters: every 5 s on Voices & Engines, every 2 s while the
+  // setup panel waits for an engine.
+  const { engines, hub, recheck, checkedAt } = useEngines({ pollMs: drawer ? 2000 : tab === 'engines' ? 5000 : 0 });
   // true when the engine answers, false when it doesn't, null while checking.
   const engineStatus = Object.fromEntries(LOCAL_ENGINE_IDS.map((id) => {
     const { state } = engines[id];
@@ -255,10 +262,7 @@ function OptionsApp() {
     const onHashChange = () => {
       const route = routeFromHash();
       setTab(route.tab);
-      if (route.engine) {
-        setSetupEngine(route.engine);
-        requestAnimationFrame(() => document.getElementById('setup')?.scrollIntoView({ block: 'start' }));
-      }
+      if (route.engine) setDrawer(route.engine);
     };
     onHashChange();
     window.addEventListener('hashchange', onHashChange);
@@ -278,7 +282,7 @@ function OptionsApp() {
   }, []);
 
   useEffect(() => {
-    if (tab === 'voices') fetchVoices(voicesEngine);
+    if (tab === 'engines') fetchVoices(voicesEngine);
   }, [tab, voicesEngine]);
 
   useEffect(() => {
@@ -423,7 +427,7 @@ function OptionsApp() {
       if (chrome.runtime.lastError || !response) {
         setWelcomeNote('Something went wrong. Reload the page and try again.');
       } else if (!response.ok) {
-        setWelcomeNote(`${response.error}. Turn on the Basic voice fallback in Settings to hear it.`);
+        setWelcomeNote(`${response.error}. Turn on the Basic voice fallback in Voices & Engines to hear it.`);
       } else if (response.fellBack) {
         setWelcomeNote(`${engineLabel(settings.engine)} isn't running, so the Basic voice read it.`);
       } else {
@@ -520,7 +524,13 @@ function OptionsApp() {
   }
 
   function openSetup(engine) {
-    window.location.hash = `settings:${engine}`;
+    if (LOCAL_ENGINE_IDS.includes(engine)) setDrawer(engine);
+  }
+
+  function closeSetup() {
+    setDrawer('');
+    // Drop the engine from the address, so a reload doesn't reopen it.
+    if (routeFromHash().engine) history.replaceState(null, '', `#${tab}`);
   }
 
   function profileForm(draft, patch) {
@@ -624,7 +634,14 @@ function OptionsApp() {
           {(!engineStatus.piper || !engineStatus.kokoro) && (
             <div className="settings-group">
               <h3 className="settings-group-title"><Icon name="terminal" size="s" />3. Add natural voices</h3>
-              <SetupGuide engine={setupEngine === 'kokoro' || engineStatus.piper ? 'kokoro' : 'piper'} engines={engines} onEngine={setSetupEngine} />
+              <p className="setting-desc">Free, and they run on this computer. Start with Piper: Kokoro runs through Piper's server.</p>
+              <div className="welcome-setup">
+                {LOCAL_ENGINE_IDS.filter((engine) => !engineStatus[engine]).map((engine) => (
+                  <button key={engine} className={`btn btn-sm ${engine === 'piper' || engineStatus.piper ? 'btn-primary' : 'btn-ghost'}`} onClick={() => openSetup(engine)}>
+                    <Icon name="terminal" size="s" />{engines[engine].state === 'stopped' ? `Start ${engineLabel(engine)}` : `Set up ${engineLabel(engine)}`}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 
@@ -698,10 +715,58 @@ function OptionsApp() {
         </section>
       )}
 
-      {tab === 'voices' && (
+      {tab === 'engines' && (
         <section className="tab-panel" role="tabpanel">
           <div className="panel-toolbar">
-            <h2 className="panel-heading">Voices</h2>
+            <h2 className="panel-heading">Voices &amp; Engines</h2>
+            <span className="panel-hint engines-checked" aria-live="polite">{checkedAt ? (hub?.reachable === false ? "VoiceDock's server is not running" : 'Checked just now') : 'Checking'}</span>
+            <button className="btn btn-ghost btn-sm" onClick={() => recheck()}><Icon name="refresh" size="s" />Check again</button>
+          </div>
+          <p className="panel-blurb">Each engine is a set of voices that runs on this computer. Text never leaves it.</p>
+
+          <h3 className="section-title"><Icon name="cpu" size="s" />On this computer</h3>
+          <div className="engine-cards">
+            {LOCAL_ENGINE_IDS.map((engine) => (
+              <EngineCard
+                key={engine}
+                engine={engine}
+                state={engines[engine].state}
+                entry={engines[engine].entry}
+                detail={engines[engine].detail}
+                hub={hub}
+                sampling={testingVoice === testKey(normalizeProfile({ engine, voice: '' }))}
+                onSample={() => testVoice({ engine, voice: '' })}
+                onSetup={() => openSetup(engine)}
+                onVoices={() => { setVoicesEngine(engine); document.getElementById('voices')?.scrollIntoView({ block: 'start', behavior: 'smooth' }); }}
+              />
+            ))}
+          </div>
+
+          <div className="settings-group fallback-group">
+            <div className="basic-row" data-engine="browser">
+              <EngineMono engine="browser" small />
+              <div className="basic-row-text">
+                <span className="basic-row-title"><b>{engineLabel('browser')}</b><EngineStatus state="ready" /></span>
+                <span className="setting-desc">Chrome's built-in speech: no setup, nothing to download.</span>
+              </div>
+              <button className="btn btn-sm btn-ghost" onClick={() => testVoice({ engine: 'browser', voice: '' })} disabled={testingVoice === testKey(normalizeProfile({ engine: 'browser', voice: '' }))}>
+                <Icon name="play" size="s" />Play a sample
+              </button>
+            </div>
+            <label className="setting-row switch-row">
+              <input type="checkbox" role="switch" className="switch" checked={fallback} onChange={(event) => {
+                setFallback(event.target.checked);
+                persist({ fallback: event.target.checked });
+              }} />
+              <div>
+                <span className="setting-label">Fall back to the Basic voice</span>
+                <span className="setting-desc">When a profile's engine can't read, the Basic voice reads instead. Off: VoiceDock stays silent and says why.</span>
+              </div>
+            </label>
+          </div>
+
+          <div className="panel-toolbar voices-toolbar" id="voices">
+            <h3 className="section-title"><Icon name="mic" size="s" />Voices</h3>
             <span className="favs-count"><Icon name="star" size="s" />{viewFavorites.length} / {MAX_FAVORITES}</span>
             <label className="toggle-label">
               <input type="checkbox" checked={favsOnly} onChange={(event) => {
@@ -787,46 +852,9 @@ function OptionsApp() {
         </section>
       )}
 
-      {tab === 'settings' && (
+      {tab === 'shortcuts' && (
         <section className="tab-panel" role="tabpanel">
-          <div className="panel-toolbar"><h2 className="panel-heading">Settings</h2></div>
-
-          <h3 className="section-title"><Icon name="cpu" size="s" />Engines</h3>
-          {/* Two columns: Piper and Kokoro are parallel, short cards worth comparing. */}
-          <div className="engine-cards">
-            {LOCAL_ENGINE_IDS.map((engine) => (
-              <EngineCard
-                key={engine}
-                engine={engine}
-                state={engines[engine].state}
-                entry={engines[engine].entry}
-                detail={engines[engine].detail}
-                onCheck={() => fetchVoices(engine)}
-                onSetup={() => { setSetupEngine(engine); document.getElementById('setup')?.scrollIntoView({ block: 'start', behavior: 'smooth' }); }}
-              />
-            ))}
-          </div>
-
-          <h3 className="section-title" id="setup"><Icon name="terminal" size="s" />Set up or start an engine</h3>
-          <div className="settings-group">
-            <SetupGuide engine={setupEngine} engines={engines} onEngine={setSetupEngine} />
-          </div>
-
-          <h3 className="section-title"><Icon name="shield" size="s" />Reading</h3>
-          <div className="settings-group">
-            <label className="setting-row">
-              <input type="checkbox" checked={fallback} onChange={(event) => {
-                setFallback(event.target.checked);
-                persist({ fallback: event.target.checked });
-              }} />
-              <div>
-                <span className="setting-label">Basic voice fallback</span>
-                <span className="setting-desc">Read with Chrome's voice when Piper or Kokoro can't.</span>
-              </div>
-            </label>
-          </div>
-
-          <h3 className="section-title"><Icon name="keyboard" size="s" />Shortcuts</h3>
+          <div className="panel-toolbar"><h2 className="panel-heading">Shortcuts</h2></div>
           <div className="settings-group">
             {CHROME_COMMANDS.map(([command, label]) => {
               const shortcut = shortcutForCommand(command);
@@ -853,7 +881,7 @@ function OptionsApp() {
             <li><span className="flow-step"><Icon name="type" size="s" /></span><div><strong>Select text</strong>, then right-click <em>Read selection</em> or press <kbd>{readShortcut || 'the shortcut'}</kbd>.</div></li>
             <li><span className="flow-step"><Icon name="cpu" size="s" /></span><div>Your profile's engine speaks it on this computer, through VoiceDock's local server at <code>127.0.0.1:7477</code>. It starts <strong>Kokoro</strong> when you read with it and stops it when you don't.</div></li>
             <li><span className="flow-step"><Icon name="wave" size="s" /></span><div>It reads <strong>sentence by sentence</strong>; the player bar on the page pauses, skips and stops.</div></li>
-            <li><span className="flow-step"><Icon name="shield" size="s" /></span><div>An engine that can't read falls back to the <strong>Basic voice</strong> (Settings), and the page says so.</div></li>
+            <li><span className="flow-step"><Icon name="shield" size="s" /></span><div>An engine that can't read falls back to the <strong>Basic voice</strong> (Voices &amp; Engines), and the page says so.</div></li>
             <li><span className="flow-step"><Icon name="globe" size="s" /></span><div><strong>Nothing leaves your machine</strong>: no cloud, no account, no API key.</div></li>
           </ol>
           <a className="link-external about-readme" href="https://github.com/n8watkins/voicedock#readme" target="_blank">README and setup guide <Icon name="external" size="s" className="inline" /></a>
@@ -881,6 +909,18 @@ function OptionsApp() {
       )}
       </main>
 
+      {drawer && (
+        <SetupDrawer
+          engine={drawer}
+          engines={engines}
+          recheck={recheck}
+          activeProfile={activeProfile}
+          sampling={testingVoice === testKey(normalizeProfile({ engine: drawer, voice: '' }))}
+          onSample={() => testVoice({ engine: drawer, voice: '' })}
+          onUse={() => { useEngine(drawer); }}
+          onClose={closeSetup}
+        />
+      )}
       <Modal modal={modal} onConfirm={() => resolveModal(true)} onCancel={() => resolveModal(false)} />
     </div>
   );
@@ -896,10 +936,19 @@ const CREDITS = [
   { name: 'Onest, Bricolage Grotesque', desc: 'Typefaces (SIL OFL)', href: 'https://github.com/googlefonts/onest', icon: 'type' },
 ];
 
-// One engine at a glance: status, address, memory, and the button that matters.
-function EngineCard({ engine, state, entry, detail, onCheck, onSetup }) {
-  const facts = ENGINES[engine].facts;
-  const usable = engineUsable(state);
+// One engine at a glance: its state in words, four facts, and the one
+// button that matters in that state.
+function EngineCard({ engine, state, entry, detail, hub, sampling, onSample, onSetup, onVoices }) {
+  const { facts, blurb } = ENGINES[engine];
+  const local = ENGINES[engine].local;
+  // Piper has no process while idle (one per read); Kokoro's is the engine's.
+  const memory = engine === 'piper'
+    ? (entry?.speaking && entry.rssMb ? `${Math.round(entry.rssMb)} MB reading now` : facts.memory)
+    : entry?.rssMb ? `${Math.round(entry.rssMb)} MB now` : engineUsable(state) ? 'None now' : facts.memory;
+  const memoryNote = engine === 'kokoro' && (entry?.rssMb || engineUsable(state)) ? facts.memory : '';
+  const firstAudio = engine === 'kokoro'
+    ? (entry?.modelLoaded ? 'At once, model loaded' : `About ${startSeconds(engine, hub)} s from cold`)
+    : engine === 'piper' ? 'About 1 s' : 'At once';
   return (
     <div className={`engine-card state-${state}`} data-engine={engine}>
       <div className="engine-card-head">
@@ -909,16 +958,24 @@ function EngineCard({ engine, state, entry, detail, onCheck, onSetup }) {
           <EngineStatus state={state} />
         </div>
       </div>
+      <p className="engine-card-blurb">{blurb}</p>
       <dl className="engine-facts">
-        <dt>Now</dt><dd>{detail || STATUS_LABEL[state]}</dd>
-        <dt>Memory</dt><dd>{entry?.rssMb ? `${Math.round(entry.rssMb)} MB now · ` : ''}{facts.memory}</dd>
+        <dt>Now</dt><dd className="engine-detail">{detail || STATUS_LABEL[state]}</dd>
+        <dt>Memory</dt><dd>{memory}{memoryNote ? <span className="fact-sub"> · {memoryNote}</span> : null}</dd>
         <dt>Download</dt><dd>{facts.download}</dd>
+        <dt>First audio</dt><dd>{firstAudio}</dd>
       </dl>
       <div className="engine-card-actions">
-        <button className="btn btn-ghost btn-sm" onClick={onCheck}><Icon name="refresh" size="s" />Check again</button>
-        <button className={`btn btn-sm ${usable ? 'btn-ghost' : 'btn-primary'}`} onClick={onSetup}>
-          <Icon name="terminal" size="s" />{state === 'missing' ? 'Set up' : usable ? 'Setup steps' : 'How to start'}
-        </button>
+        {state === 'missing' && <button className="btn btn-sm btn-primary" onClick={onSetup}><Icon name="terminal" size="s" />Set up</button>}
+        {state === 'stopped' && <button className="btn btn-sm btn-primary" onClick={onSetup}><Icon name="terminal" size="s" />How to start</button>}
+        {state === 'checking' && <button className="btn btn-sm btn-ghost" disabled><Icon name="loader" size="s" spin />Checking</button>}
+        {engineUsable(state) && (
+          <button className="btn btn-sm btn-ghost" onClick={onSample} disabled={sampling}>
+            <Icon name={sampling ? 'loader' : 'play'} size="s" spin={sampling} />{sampling ? 'Playing' : 'Play a sample'}
+          </button>
+        )}
+        {local && engineUsable(state) && <button className="btn btn-sm btn-ghost" onClick={onVoices}><Icon name="mic" size="s" />Voices</button>}
+        {local && engineUsable(state) && <button className="btn btn-sm btn-link" onClick={onSetup}>Setup steps</button>}
       </div>
     </div>
   );
@@ -943,17 +1000,15 @@ function CommandBlock({ commands }) {
   );
 }
 
-// Numbered setup steps for one engine, with a tab per OS (this OS first
-// selected), how to tell it worked, and what "Installed but not running" means.
-function SetupGuide({ engine, engines, onEngine }) {
+// Numbered steps for one engine, with a tab per OS (this OS first): how to
+// set it up, or, when it is set up but not running, how to start it.
+function SetupGuide({ engine, mode = 'setup' }) {
   const [os, setOs] = useState(detectOs);
-  const steps = setupSteps(engine, os);
+  const steps = mode === 'start' ? startSteps(engine, os) : setupSteps(engine, os);
   const facts = SETUP_FACTS[engine];
-  const help = NOT_RUNNING_HELP[engine];
   return (
-    <div className="setup-guide">
+    <div className="setup-guide" data-mode={mode}>
       <div className="setup-tabs">
-        {onEngine && <EnginePills engines={engines} ids={LOCAL_ENGINE_IDS} value={engine} onChange={onEngine} label="Engine to set up" />}
         <div className="os-tabs" role="tablist" aria-label="Your computer">
           {OS_IDS.map((id) => (
             <button key={id} type="button" role="tab" aria-selected={os === id} className={`os-tab${os === id ? ' active' : ''}`} onClick={() => setOs(id)}>
@@ -962,7 +1017,7 @@ function SetupGuide({ engine, engines, onEngine }) {
           ))}
         </div>
       </div>
-      <p className="setup-facts">Needs {facts.needs} · {facts.size} download</p>
+      {mode === 'setup' && <p className="setup-facts">Needs {facts.needs} · {facts.size} download</p>}
       <ol className="setup-steps">
         {steps.map((step, i) => (
           <li key={step.title}>
@@ -975,17 +1030,72 @@ function SetupGuide({ engine, engines, onEngine }) {
           </li>
         ))}
       </ol>
-      <p className="setup-worked"><Icon name="check" size="s" /><span><b>Worked?</b> {facts.worked}</span></p>
-      <div className="setup-states">
-        <p><EngineStatus state="stopped" /> {help.means} {help.fix[os]}</p>
-        {engine === 'kokoro' && <p><EngineStatus state="standby" /> Set up and fine: Piper starts it with your first Kokoro read.</p>}
-        <p><EngineStatus state="missing" /> Never answered on this computer: follow the steps above.</p>
-      </div>
+      {mode === 'setup' && <p className="setup-worked"><Icon name="check" size="s" /><span><b>Worked?</b> {facts.worked}</span></p>}
     </div>
   );
 }
 
-// An engine that isn't running, on the Voices tab.
+// The guided setup panel: the steps for one engine, and a live check that
+// asks the hub every 2 seconds and turns green when the engine can read.
+function SetupDrawer({ engine, engines, recheck, activeProfile, sampling, onSample, onUse, onClose }) {
+  const { state, detail } = engines[engine];
+  const label = engineLabel(engine);
+  const usable = engineUsable(state);
+  // The steps follow the engine's first known state, so the list never swaps
+  // under the reader when the engine comes up.
+  const [fixedMode, setFixedMode] = useState(state === 'checking' ? '' : state === 'stopped' ? 'start' : 'setup');
+  useEffect(() => {
+    if (!fixedMode && state !== 'checking') setFixedMode(state === 'stopped' ? 'start' : 'setup');
+  }, [fixedMode, state]);
+  const mode = fixedMode || 'setup';
+  const panelRef = useRef(null);
+  useEffect(() => {
+    const before = document.activeElement;
+    panelRef.current?.focus();
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('keydown', onKey); before?.focus?.(); };
+  }, []);
+  const title = state === 'checking' && !fixedMode ? label : mode === 'start' ? `Start ${label}` : `Set up ${label}`;
+  const usesIt = activeProfile?.engine === engine;
+  return (
+    <div className="drawer-scrim" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <aside ref={panelRef} tabIndex={-1} className="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title" data-engine={engine}>
+        <header className="drawer-head">
+          <EngineMono engine={engine} />
+          <div className="drawer-title">
+            <h2 id="drawer-title">{title}</h2>
+            <EngineStatus state={state} />
+          </div>
+          <button type="button" className="vd-icon-btn" aria-label="Close" onClick={onClose}><Icon name="close" /></button>
+        </header>
+        <div className="drawer-body">
+          {mode === 'start' && detail && <p className="drawer-why"><Icon name="info" size="s" />{detail}</p>}
+          {mode === 'start' && <p className="setting-desc">{NOT_RUNNING_HELP[engine].means}</p>}
+          <SetupGuide engine={engine} mode={mode} />
+        </div>
+        <footer className={`drawer-live${usable ? ' is-ready' : ''}`} role="status" aria-live="polite">
+          {usable ? (
+            <>
+              <span className="drawer-live-text"><Icon name="check" size="s" /><b>{state === 'standby' ? `${label} is set up.` : `${label} is ready.`}</b> {state === 'standby' ? 'It starts when you read.' : ''}</span>
+              <span className="drawer-live-actions">
+                <button className="btn btn-sm btn-ghost" onClick={onSample} disabled={sampling}><Icon name={sampling ? 'loader' : 'play'} size="s" spin={sampling} />Play a sample</button>
+                {activeProfile && !usesIt && <button className="btn btn-sm btn-primary" onClick={onUse}>Use this voice</button>}
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="drawer-live-text"><span className="live-dot" aria-hidden="true" />Waiting for {label} on this computer. <span className="setting-desc">Checks every 2 seconds while this panel is open.</span></span>
+              <span className="drawer-live-actions"><button className="btn btn-sm btn-ghost" onClick={() => recheck()}><Icon name="refresh" size="s" />Check again</button></span>
+            </>
+          )}
+        </footer>
+      </aside>
+    </div>
+  );
+}
+
+// An engine that isn't running, above its voice list.
 function EngineSetupInline({ engine, state, onSetup }) {
   return (
     <div className="voices-offline-banner">

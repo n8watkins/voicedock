@@ -142,7 +142,7 @@ Responses are `Cache-Control: no-store`.
 
 ## Piper-only routes
 
-These manage installed voice files and are used by the extension's Voices tab.
+These manage installed voice files and are used by the extension's Voices & Engines page.
 Kokoro's voices live in a single bundled file, so it has no equivalents.
 
 | Method | Path | Does |

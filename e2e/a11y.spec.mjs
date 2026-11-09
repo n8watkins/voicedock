@@ -50,7 +50,7 @@ test('popup: no accessibility violations', async ({ engines, openPopup, seed }) 
   await expectNoViolations(page, 'popup picker, Kokoro not running');
 });
 
-for (const tab of ['welcome', 'profiles', 'voices', 'settings', 'about', 'credits']) {
+for (const tab of ['welcome', 'profiles', 'engines', 'shortcuts', 'about', 'credits']) {
   test(`settings page ${tab}: no accessibility violations`, async ({ engines, openOptions, seed }) => {
     await seed(SEED);
     if (tab === 'welcome') engines.kokoro.set('stopped');
@@ -61,13 +61,24 @@ for (const tab of ['welcome', 'profiles', 'voices', 'settings', 'about', 'credit
       await page.locator('.vf-button').click();
       await expect(page.locator('.vf-pop')).toBeVisible();
     }
-    if (tab === 'voices') {
-      await page.getByRole('radio', { name: /Piper/ }).click();
+    if (tab === 'engines') {
+      await page.locator('.voices-engines').getByRole('radio', { name: /Piper/ }).click();
       await page.locator('.deleted-summary').click();
     }
     await expectNoViolations(page, `settings ${tab}`);
   });
 }
+
+test('the guided setup panel: no accessibility violations', async ({ engines, openOptions, seed }) => {
+  await seed(SEED);
+  for (const mode of ['stopped', 'off', 'standby']) {
+    engines.kokoro.set(mode);
+    const page = await openOptions('engines:kokoro');
+    await expect(page.getByRole('dialog').locator('.drawer-live')).toBeVisible();
+    await expectNoViolations(page, `setup panel, Kokoro ${mode}`);
+    await page.close();
+  }
+});
 
 test.describe('player bar', () => {
   test.use({ pageAccess: true, openShadow: true });
