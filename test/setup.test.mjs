@@ -1,7 +1,7 @@
 // The setup steps the settings page shows (extension/src/setup.js).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { detectOs, NOT_RUNNING_HELP, OS_IDS, SETUP_FACTS, SETUP_STEPS, setupSteps } from '../extension/src/setup.js';
+import { detectOs, NOT_RUNNING_HELP, OS_IDS, SETUP_FACTS, SETUP_STEPS, setupSteps, startSteps } from '../extension/src/setup.js';
 
 test('every engine has numbered steps for every OS, Windows first', () => {
   assert.deepEqual(OS_IDS, ['windows', 'macos', 'linux']);
@@ -16,8 +16,20 @@ test('every engine has numbered steps for every OS, Windows first', () => {
       }
     }
     assert.ok(SETUP_FACTS[engine].worked);
-    for (const os of OS_IDS) assert.ok(NOT_RUNNING_HELP[engine].fix[os]);
+    assert.ok(NOT_RUNNING_HELP[engine].means);
   }
+});
+
+test('an engine that is set up but not running starts with VoiceDock\'s server', () => {
+  for (const engine of ['piper', 'kokoro']) {
+    for (const os of OS_IDS) {
+      const steps = startSteps(engine, os);
+      assert.match(steps[0].title, /Start VoiceDock's server/);
+      assert.ok(steps[0].commands.includes('npm start'));
+      for (const step of steps) assert.ok(step.what.length <= 80, `${engine} ${os}: "${step.what}"`);
+    }
+  }
+  assert.match(startSteps('kokoro', 'windows')[1].commands.join('\n'), /setup\.ps1/);
 });
 
 test('Windows uses PowerShell and backslashes; macOS and Linux use the shell scripts', () => {

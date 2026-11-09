@@ -192,8 +192,7 @@ const chromeShim = `
 
 const screenshotNames = [
   'options-profiles.png',
-  'options-voices.png',
-  'options-settings.png',
+  'options-engines.png',
   'options-about.png',
   'options-credits.png',
   'popup.png',
@@ -309,10 +308,9 @@ const browserUrl = 'http://127.0.0.1:${chromeDebugPort}';
 
 const optionTabs = [
   { id: 'profiles', label: 'Profiles', waitFor: 'Articles' },
-  { id: 'voices', label: 'Voices', waitFor: 'Ryan' },
-  { id: 'settings', label: 'Settings', waitFor: 'Keyboard Shortcuts' },
-  { id: 'about', label: 'About', waitFor: 'How It Works' },
-  { id: 'credits', label: 'Credits', waitFor: 'Open Source' },
+  { id: 'engines', label: 'Voices & Engines', waitFor: 'Ryan' },
+  { id: 'about', label: 'How it works', waitFor: 'Select text' },
+  { id: 'credits', label: 'Credits', waitFor: 'Built on' },
 ];
 
 async function clickTab(page, label) {

@@ -27,9 +27,7 @@ Set up Piper for natural local voices, and add Kokoro only if you want its voice
 
 <img src="screenshots/options-profiles.png" alt="Profiles tab with Piper and Kokoro profiles" width="560">
 
-<img src="screenshots/options-voices.png" alt="Voices tab listing Piper voices, with a switch between Piper and Kokoro" width="560">
-
-<img src="screenshots/options-settings.png" alt="Settings tab with the browser fallback, both engine servers, and keyboard shortcuts" width="560">
+<img src="screenshots/options-engines.png" alt="Voices & Engines: a card for Piper and Kokoro with their state, memory and first-audio time, the Basic voice fallback, and the voice list" width="560">
 
 <img src="screenshots/options-about.png" alt="About tab explaining how VoiceDock works" width="560">
 
@@ -201,8 +199,8 @@ If another Piper server is already running, the tray shows it as external and wo
 
 </details>
 
-To add voices later, put each `.onnx` and `.onnx.json` pair in `servers/piper/piper/voices/` (the **Open folder** button on the Voices tab opens it), then restart the server.
-Test, star, or delete voices from **Settings → Voices → Piper**.
+To add voices later, put each `.onnx` and `.onnx.json` pair in `servers/piper/piper/voices/` (the **Open folder** button in Voices & Engines opens it), then restart the server.
+Test, star, or delete voices from **Voices & Engines**, under Voices, with Piper selected.
 
 #### Kokoro server (optional)
 
@@ -253,7 +251,7 @@ See [servers/kokoro/README.md](servers/kokoro/README.md).
 
 ### Step 4 - Verify in Chrome
 
-1. Open VoiceDock's **Settings**: each engine card shows its state, with **Check again**.
+1. Open VoiceDock's **Voices & Engines**: each engine card shows its state from VoiceDock's server, with **Check again**.
 2. On **Profiles**, edit a profile: pick the engine pill, then a voice, and press **Test**.
 3. The popup's dock strip shows every engine's state.
 
@@ -262,11 +260,11 @@ See [servers/kokoro/README.md](servers/kokoro/README.md).
 | State | Means | Fix |
 | --- | --- | --- |
 | **Ready** | It answers now. | Nothing. |
-| **Starts when you read** (Kokoro) | Set up; the Piper server starts it on your first Kokoro read. | Nothing. |
-| **Installed but not running** | It answered before, but not now. | Piper: tray icon, then **Start** (or `npm start` in `servers/piper`). Kokoro: start Piper first; still stuck, run `setup.ps1` or `setup.sh` again and restart Piper. |
-| **Not installed** | It never answered on this computer. | Follow the steps above. |
+| **Starts when you read** (Kokoro) | Set up; VoiceDock's server starts it on your first Kokoro read. | Nothing. |
+| **Installed but not running** | Set up, but VoiceDock's server is not running, or keeps the engine off for now (low memory, repeated crashes). | Tray icon, then **Start** (or `npm start` in `servers/piper`). Kokoro still stuck: run `setup.ps1` or `setup.sh` again and **Restart** from the tray icon. |
+| **Not installed** | Not set up on this computer. | Follow the steps above. |
 
-The extension's Settings page shows the same steps per OS, with copy buttons.
+In the extension, **Set up** and **How to start** open a guided panel with the same steps per OS, copy buttons, and a live check that turns green when the engine is ready.
 
 ---
 
@@ -280,7 +278,7 @@ Stop with `Alt+Shift+S` again, the popup's **Stop** button, or right-click → *
 - Read / stop selected text: `Alt+Shift+S`
 - Pause / resume: `Alt+Shift+D`
 
-Rebind them at `chrome://extensions/shortcuts` (the Settings tab links there).
+Rebind them at `chrome://extensions/shortcuts` (the Shortcuts tab links there).
 
 **Profiles:** each profile stores an engine (Piper, Kokoro, or the Basic voice), a voice, a speed, and a volume.
 Switch profiles with the pills in the popup, or use **Read as…** in the right-click menu.
@@ -297,8 +295,8 @@ Switch profiles with the pills in the popup, or use **Read as…** in the right-
 | --- | --- |
 | **Get started** | Opens on a new install: read a sample, see which voices run here, and set up Piper or Kokoro step by step. |
 | **Profiles** | Up to 5 profiles, each with an engine and voice (engine pills, then a voice list), speed and volume. |
-| **Voices** | Each engine's voices: samples, up to 5 favorites per engine, and deleting Piper voices from disk. |
-| **Settings** | An engine card each for Piper and Kokoro, the setup steps per OS with copy buttons, the Basic voice fallback, and shortcuts. |
+| **Voices & Engines** | A card per engine with its state, memory and time to first audio; guided setup per OS with a live check; the Basic voice fallback; each engine's voices with samples, up to 5 favorites per engine, and deleting Piper voices from disk. |
+| **Shortcuts** | The read and pause shortcuts, with a link to change them in Chrome. |
 | **How it works** | Where your text goes, in five lines. |
 | **Credits** | Piper, Kokoro and the other open-source pieces. |
 
@@ -403,12 +401,12 @@ Chrome leaves a suggested shortcut unassigned when it is already taken, which is
 
 **An engine shows Offline.**
 Piper: run `npm start` (or the tray) in `servers/piper/` and check that port 7477 is free.
-Kokoro: it starts on demand through the Piper server, so check Piper first; then check that `servers/kokoro` was set up (`setup.ps1` or `setup.sh`), and look in `servers/piper/logs/kokoro.log`.
-Then press **Check again** on the Settings tab.
+Kokoro: it starts on demand through VoiceDock's server, so check that first; then check that `servers/kokoro` was set up (`setup.ps1` or `setup.sh`), and look in `servers/piper/logs/kokoro.log` and at `http://127.0.0.1:7477/hub/events`.
+Then press **Check again** on Voices & Engines.
 
 **A profile sounds like the Basic voice.**
 Its engine is offline and the fallback kicked in; the page shows a short note when that happens.
-Start the engine, or turn the fallback off in Settings to get an error instead.
+Start the engine, or turn the fallback off in Voices & Engines to get an error instead.
 
 **No audio at all.**
 Open DevTools (F12 → Console) on the page and look for errors.

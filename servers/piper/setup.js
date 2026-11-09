@@ -130,7 +130,7 @@ async function main() {
   log('\n✓ Setup complete.');
   log('  The VoiceDock tray is running (look for the icon: a green dot means Piper is up).');
   log('  It auto-starts the server, set up launch-at-login, and shows status.');
-  log('  Add or remove voices anytime from the Chrome extension’s Settings → Voices.');
+  log('  Add or remove voices anytime from the Chrome extension’s Voices & Engines page.');
 }
 
 main().catch((err) => {
