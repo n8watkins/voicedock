@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "VoiceDock",
   "version": "1.1.0",
-  "description": "Highlight text and hear it read aloud by local Piper or Kokoro voices. No cloud, no API keys.",
+  "description": "Select text and hear it read aloud: Chrome's built-in voice right away, or natural Piper and Kokoro voices on your own computer.",
   "permissions": [
     "activeTab",
     "contextMenus",
