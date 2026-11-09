@@ -120,3 +120,62 @@ test('the recorded Piper pid is read from the new pid file, then the 1.1 one', (
     assert.equal(core.readRecordedPid(files), 4242, 'an unreadable new file falls back');
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+// ─── Host lease (N8 Tray) ────────────────────────────────────────────────────
+const NOW = Date.parse('2026-11-09T18:04:10Z');
+const lease = (extra = {}) => ({
+  contract: 2, host: 'n8tray', version: '0.26.0', pid: 9124, pidStartedAt: '2026-11-09T08:01:40Z',
+  heartbeat: new Date(NOW - 3000).toISOString(), hosting: ['voicedock'], ...extra,
+});
+
+test('the host lease lives in N8 Tray\'s run folder on each OS', () => {
+  assert.equal(core.hostLeasePath('win32', { LOCALAPPDATA: 'C:\\Users\\a\\AppData\\Local' }, 'C:\\Users\\a'),
+    join('C:\\Users\\a\\AppData\\Local', 'N8Tray', 'run', 'host.json'));
+  assert.equal(core.hostLeasePath('darwin', {}, '/Users/a'), join('/Users/a', 'Library', 'Application Support', 'N8Tray', 'run', 'host.json'));
+  assert.equal(core.hostLeasePath('linux', { XDG_RUNTIME_DIR: '/run/user/1000' }, '/home/a'), join('/run/user/1000', 'n8tray', 'host.json'));
+  assert.equal(core.hostLeasePath('linux', {}, '/home/a'), null, 'no runtime dir, no host');
+});
+
+test('reading the lease tolerates a BOM and refuses anything that is not a lease object', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'voicedock-lease-'));
+  try {
+    const file = join(dir, 'host.json');
+    writeFileSync(file, '\uFEFF' + JSON.stringify(lease()));
+    assert.deepEqual(core.readHostLease(file).hosting, ['voicedock']);
+    writeFileSync(file, '{"hosting": ["voice');
+    assert.equal(core.readHostLease(file), null, 'half-written');
+    writeFileSync(file, '[1]');
+    assert.equal(core.readHostLease(file), null, 'not an object');
+    assert.equal(core.readHostLease(join(dir, 'missing.json')), null);
+    assert.equal(core.readHostLease(null), null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a lease hosts VoiceDock only while fresh, listing it, from a live host', () => {
+  const alive = () => true;
+  assert.equal(core.leaseHostsApp(lease(), { now: NOW, isAlive: alive }), true);
+  assert.equal(core.leaseHostsApp(lease({ heartbeat: new Date(NOW - 14000).toISOString() }), { now: NOW, isAlive: alive }), true, 'just under 15 s');
+  assert.equal(core.leaseHostsApp(lease({ heartbeat: new Date(NOW - 16000).toISOString() }), { now: NOW, isAlive: alive }), false, 'stale');
+  assert.equal(core.leaseHostsApp(lease({ heartbeat: new Date(NOW + 2000).toISOString() }), { now: NOW, isAlive: alive }), true, 'clock noise');
+  assert.equal(core.leaseHostsApp(lease({ heartbeat: new Date(NOW + 60000).toISOString() }), { now: NOW, isAlive: alive }), false, 'far future');
+  assert.equal(core.leaseHostsApp(lease({ heartbeat: 'soon' }), { now: NOW, isAlive: alive }), false);
+  assert.equal(core.leaseHostsApp(lease({ hosting: ['n8hotkeys'] }), { now: NOW, isAlive: alive }), false, 'not listed');
+  assert.equal(core.leaseHostsApp(lease({ hosting: 'voicedock' }), { now: NOW, isAlive: alive }), false, 'not a list');
+  assert.equal(core.leaseHostsApp(lease(), { now: NOW, isAlive: () => false }), false, 'host died');
+  assert.equal(core.leaseHostsApp(lease({ pid: 0 }), { now: NOW, isAlive: alive }), false);
+  assert.equal(core.leaseHostsApp(null, { now: NOW }), false);
+});
+
+test('the tray hides while hosted, waits briefly for a host that is starting, and shows otherwise', () => {
+  const alive = () => true;
+  const stale = lease({ heartbeat: new Date(NOW - 60000).toISOString() });
+  assert.equal(core.trayMode({ lease: lease(), now: NOW, isAlive: alive }), 'hosted');
+  assert.equal(core.trayMode({ lease: null, now: NOW, startedAt: NOW }), 'own', 'no host on this machine');
+  assert.equal(core.trayMode({ lease: lease({ hosting: [] }), now: NOW, startedAt: NOW }), 'own', 'the host does not host VoiceDock');
+  assert.equal(core.trayMode({ lease: stale, now: NOW, startedAt: NOW - 5000, isAlive: alive }), 'waiting', 'both start at sign-in');
+  assert.equal(core.trayMode({ lease: stale, now: NOW, startedAt: NOW - core.LEASE_START_GRACE_MS, isAlive: alive }), 'own', 'the host never came');
+  assert.equal(core.trayMode({ lease: stale, now: NOW, startedAt: NOW - 5000, isAlive: alive, settled: true }), 'own', 'the host quit or crashed: back at once');
+  assert.equal(core.trayMode({ lease: lease(), now: NOW, isAlive: alive, settled: true }), 'hosted', 'the host came back');
+});

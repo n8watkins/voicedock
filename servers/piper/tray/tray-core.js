@@ -158,8 +158,70 @@ function autostartPaths(platform = process.platform, env = process.env, home = o
   return { current: path.join(dir, 'voicedock-tray.desktop'), legacy: path.join(dir, 'piper-tts-tray.desktop') }; // legacy-name
 }
 
+// ─── Host lease (N8 Tray) ────────────────────────────────────────────────────
+// A host tray (N8 Tray) that shows VoiceDock in its own hub writes a lease
+// file every 5 s listing the apps it hosts. While a fresh lease lists
+// VoiceDock, this tray shows no icon and leaves Piper to the host, so there is
+// never a second icon or a second owner for the same server.
+const LEASE_APP_ID = 'voicedock';
+// A lease is fresh while its heartbeat is under 15 s old (three missed writes).
+const LEASE_FRESH_MS = 15000;
+// At start, a stale lease that lists VoiceDock usually means the host is
+// starting too (both start at sign-in), so the tray waits this long for it
+// before showing its own icon and starting Piper.
+const LEASE_START_GRACE_MS = 30000;
+
+/** Where a host tray writes its lease, or null where there is none. */
+function hostLeasePath(platform = process.platform, env = process.env, home = os.homedir()) {
+  if (platform === 'win32') return path.join(env.LOCALAPPDATA || path.join(home, 'AppData', 'Local'), 'N8Tray', 'run', 'host.json');
+  if (platform === 'darwin') return path.join(home, 'Library', 'Application Support', 'N8Tray', 'run', 'host.json');
+  return env.XDG_RUNTIME_DIR ? path.join(env.XDG_RUNTIME_DIR, 'n8tray', 'host.json') : null;
+}
+
+/** The parsed lease, or null (missing, unreadable, half-written or not an object). */
+function readHostLease(file, readFile = (f) => fs.readFileSync(f, 'utf8')) {
+  if (!file) return null;
+  try {
+    // N8 Tray (Windows PowerShell) may write a UTF-8 BOM.
+    const lease = JSON.parse(readFile(file).replace(/^﻿/, ''));
+    return lease && typeof lease === 'object' && !Array.isArray(lease) ? lease : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether a lease hosts this app right now: it lists the id, its heartbeat is
+ * under LEASE_FRESH_MS old (a heartbeat slightly in the future is clock noise
+ * and counts as fresh) and the host pid is alive.
+ */
+function leaseHostsApp(lease, { appId = LEASE_APP_ID, now = Date.now(), isAlive = () => true } = {}) {
+  if (!lease || !Array.isArray(lease.hosting) || !lease.hosting.includes(appId)) return false;
+  const heartbeat = Date.parse(lease.heartbeat);
+  if (!Number.isFinite(heartbeat)) return false;
+  const age = now - heartbeat;
+  if (age > LEASE_FRESH_MS || age < -LEASE_FRESH_MS) return false;
+  const pid = Number(lease.pid);
+  return Number.isInteger(pid) && pid > 0 && isAlive(pid);
+}
+
+/**
+ * What the tray should be: 'hosted' (no icon, Piper left to the host), 'own'
+ * (its own icon and Piper), or 'waiting' (not shown yet: at start, a lease
+ * that lists the app but is stale gets LEASE_START_GRACE_MS for its host to
+ * come up). Once the tray has been hosted or has shown its icon (settled), it
+ * never waits again: a lease going stale then means the host quit or crashed.
+ */
+function trayMode({ lease, appId = LEASE_APP_ID, now = Date.now(), isAlive = () => true, startedAt = now, settled = false } = {}) {
+  if (leaseHostsApp(lease, { appId, now, isAlive })) return 'hosted';
+  const listed = !!lease && Array.isArray(lease.hosting) && lease.hosting.includes(appId);
+  if (!settled && listed && now - startedAt < LEASE_START_GRACE_MS) return 'waiting';
+  return 'own';
+}
+
 module.exports = {
   KOKORO_HOST, KOKORO_PORT, DEFAULT_SETTINGS, appDataDir, loadSettings, saveSettings, fetchHealth,
   piperMemoryText, kokoroMemoryText, piperStatusText, kokoroStatusText, tooltipText, autostartPaths,
   isManagedServer, pidFiles, readRecordedPid,
+  LEASE_APP_ID, LEASE_FRESH_MS, LEASE_START_GRACE_MS, hostLeasePath, readHostLease, leaseHostsApp, trayMode,
 };
