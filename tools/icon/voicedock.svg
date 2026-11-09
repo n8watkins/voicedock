@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="VoiceDock">
+  <defs>
+    <linearGradient id="vd-wave" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#c4b5fd"/>
+      <stop offset="1" stop-color="#7c5cff"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="#150f33"/>
+  <!-- A voice, as sound bars, rising off its dock. -->
+  <g fill="url(#vd-wave)">
+    <rect x="14" y="27" width="5" height="14" rx="2.5"/>
+    <rect x="22.5" y="18" width="5" height="23" rx="2.5"/>
+    <rect x="31" y="12" width="5" height="29" rx="2.5"/>
+    <rect x="39.5" y="21" width="5" height="20" rx="2.5"/>
+    <rect x="48" y="29" width="5" height="12" rx="2.5" opacity="0.85"/>
+  </g>
+  <rect x="10" y="46" width="44" height="6" rx="3" fill="#ede9fe"/>
+</svg>
