@@ -185,6 +185,7 @@ test('the 1.1 extension route still starts Kokoro through the hub, and nothing s
     assert.equal(noStop.status, 404, 'stopping needs N8 Tray\'s token');
     assert.deepEqual(events, ['start']);
 
+    running = false;
     app.locals.kokoro.start = async () => { const e = new Error('no venv'); e.code = 'not-installed'; throw e; };
     const refused = await fetch(`${base}/engines/kokoro/start`, { method: 'POST' });
     assert.equal(refused.status, 409);
