@@ -8,6 +8,7 @@ import {
   engineBaseUrl,
   engineLabel,
   normalizeProfile,
+  pickDeviceVoice,
   runSettingsMigration,
 } from "./src/shared.js";
 
@@ -93,8 +94,14 @@ async function migrateAndRebuild() {
   await rebuildMenus();
 }
 
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener((details) => {
   migrateAndRebuild().catch(err => console.error("[VoiceDock] migration failed:", err));
+  // A new install opens the Get started page: try the Basic voice right away,
+  // and see whether Piper or Kokoro is running and how to set them up.
+  if (details?.reason === "install") {
+    chrome.tabs.create({ url: chrome.runtime.getURL("options.html#welcome") })
+      .catch(err => console.error("[VoiceDock] welcome page failed:", err));
+  }
 });
 chrome.runtime.onStartup?.addListener(() => {
   migrateAndRebuild().catch(err => console.error("[VoiceDock] migration failed:", err));
@@ -126,8 +133,26 @@ async function ensureOffscreenDocument() {
   }
 }
 
-// ─── Browser TTS ─────────────────────────────────────────────────────────────
-function speakWithBrowser(text, settings) {
+// ─── Basic voice (chrome.tts) ────────────────────────────────────────────────
+// Prefers a voice that runs on this device (see pickDeviceVoice), so the text
+// stays on the machine; Chrome's own default is used only when the system has
+// no on-device voice. The voice list is cached for the worker's lifetime.
+let _deviceVoicePromise = null;
+function deviceVoiceName() {
+  if (!_deviceVoicePromise) {
+    _deviceVoicePromise = (async () => {
+      try {
+        const voices = chrome.tts.getVoices ? await chrome.tts.getVoices() : [];
+        return pickDeviceVoice(voices, globalThis.navigator?.language || "en-US");
+      } catch (_) {
+        return "";
+      }
+    })();
+  }
+  return _deviceVoicePromise;
+}
+
+async function speakWithBrowser(text, settings) {
   const effectiveSettings = settings || {};
   const generation = ++_browserSpeakGeneration;
   _activeEngineRequest = null;
@@ -143,11 +168,15 @@ function speakWithBrowser(text, settings) {
     current: 0,
     total: 0,
     percent: null,
-    label: "Browser voice"
+    label: "Basic voice"
   };
   setStopMenuVisible(true);
   notifyPlaybackState();
+  const voiceName = await deviceVoiceName();
+  // Stopped, or another read started, while the voice list loaded.
+  if (generation !== _browserSpeakGeneration || _playbackEngine !== "browser") return;
   chrome.tts.speak(text, {
+    ...(voiceName ? { voiceName } : {}),
     rate:   effectiveSettings.rate   ?? 1.0,
     pitch:  1.0,
     volume: _currentVolume,
@@ -370,7 +399,7 @@ async function stopAll() {
   } catch (_) {}
 }
 
-// ─── Speak with a profile (its engine, falling back to the browser voice) ────
+// ─── Speak with a profile (its engine, falling back to the Basic voice) ──────
 // Returns { ok, engine, fellBack, error } so callers (the popup's Test button,
 // the page hint) can say what actually happened.
 async function speakText(text, profile, tabId = null) {
@@ -397,14 +426,14 @@ async function speakText(text, profile, tabId = null) {
 
   if (choice.engine === "browser") {
     if (choice.fellBack) {
-      console.log(`${choice.reason}; falling back to the browser voice`);
-      if (tabId != null) showTabHint({ id: tabId }, `${choice.reason}. Using the browser voice.`);
+      console.log(`${choice.reason}; falling back to the Basic voice`);
+      if (tabId != null) showTabHint({ id: tabId }, `${choice.reason}. Reading with the Basic voice.`);
     }
-    speakWithBrowser(text, settings);
+    await speakWithBrowser(text, settings);
     return { ok: true, engine: "browser", fellBack: choice.fellBack };
   }
 
-  if (tabId != null) showTabHint({ id: tabId }, `${choice.reason}. Turn on the browser fallback in Settings to hear it anyway.`);
+  if (tabId != null) showTabHint({ id: tabId }, `${choice.reason}. Turn on the Basic voice fallback in Settings to hear it anyway.`);
   return { ok: false, engine: null, fellBack: false, error: choice.reason };
 }
 
@@ -568,7 +597,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const { fallback = true } = await chrome.storage.local.get("fallback");
       const label = engineLabel(message.engine || request?.settings?.engine);
       if (fallback && request?.text) {
-        console.warn(`${label} playback failed; falling back to browser TTS:`, message.error);
+        console.warn(`${label} playback failed; falling back to the Basic voice:`, message.error);
         speakWithBrowser(request.text, request.settings || {});
       } else {
         console.error(`${label} playback failed:`, message.error);
@@ -602,7 +631,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   // Test button (popup / options): speak with the given settings and report
   // which engine actually played, so the UI can say "Kokoro is offline, used
-  // the browser voice" instead of silently sounding different.
+  // the Basic voice" instead of silently sounding different.
   if (message.type === "test-voice") {
     const { text, settings = {} } = message;
     speakText(text, settings)

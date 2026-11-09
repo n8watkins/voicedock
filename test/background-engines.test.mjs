@@ -6,7 +6,7 @@ import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 
 const online = { 'http://127.0.0.1:7477': true, 'http://127.0.0.1:7478': true };
-const calls = { runtime: [], tts: [], hints: [], injected: [], tabMessages: [] };
+const calls = { runtime: [], tts: [], hints: [], injected: [], tabMessages: [], created: [] };
 // Tabs as the page script sees them: which have content.js running, which
 // Chrome lets the extension script (activeTab granted), and their selection.
 const pages = { scripted: new Set(), scriptable: new Set([7, 42]), selection: { 42: 'Hello there' } };
@@ -38,10 +38,20 @@ globalThis.chrome = {
   },
   contextMenus: { onClicked: event('contextMenus.onClicked'), removeAll: async () => {}, create: () => {}, update: async () => {} },
   commands: { onCommand: event('commands.onCommand') },
-  tts: { stop() {}, speak(text, opts) { calls.tts.push({ text, opts }); }, pause() {}, resume() {} },
+  tts: {
+    stop() {}, pause() {}, resume() {},
+    speak(text, opts) { calls.tts.push({ text, opts }); },
+    // An online Google voice listed first, then on-device voices.
+    getVoices: async () => [
+      { voiceName: 'Google US English', lang: 'en-US', remote: true },
+      { voiceName: 'Microsoft Zira', lang: 'en-US', remote: false },
+      { voiceName: 'Microsoft Hedda', lang: 'de-DE', remote: false },
+    ],
+  },
   tabs: {
     onRemoved: event('tabs.onRemoved'),
     query: async () => [],
+    create: async (props) => { calls.created.push(props.url); return { id: 1 }; },
     sendMessage: async (tabId, msg) => {
       if (!pages.scripted.has(tabId)) throw new Error('Could not establish connection. Receiving end does not exist.');
       calls.tabMessages.push({ tabId, type: msg.type });
@@ -129,7 +139,7 @@ test('an offline engine falls back to the browser voice and tells the page', asy
   assert.equal(speakTextMessages().length, 0, 'nothing is sent to the offline engine');
   assert.equal(calls.tts.length, 1);
   assert.equal(calls.tts[0].text, 'Hello there');
-  assert.deepEqual(calls.hints, [{ tabId: 42, message: 'Kokoro is offline. Using the browser voice.' }]);
+  assert.deepEqual(calls.hints, [{ tabId: 42, message: 'Kokoro is offline. Reading with the Basic voice.' }]);
 });
 
 test('the shortcut adds the page script to the tab it was pressed on, then reads its selection', async () => {
@@ -195,12 +205,27 @@ test('with the fallback off, an offline engine reports an error and stays silent
   assert.equal(speakTextMessages().length, 0);
 });
 
-test('the browser engine never touches a server', async () => {
+test('the Basic voice never touches a server', async () => {
   online['http://127.0.0.1:7477'] = false;
   online['http://127.0.0.1:7478'] = false;
   const res = await send({ type: 'test-voice', text: 'Hi', settings: { engine: 'browser' } });
   assert.deepEqual(res, { ok: true, engine: 'browser', fellBack: false });
   assert.equal(calls.tts.length, 1);
+});
+
+test('the Basic voice reads with an on-device voice, not an online one', async () => {
+  await send({ type: 'test-voice', text: 'Hi', settings: { engine: 'browser' } });
+  assert.equal(calls.tts[0].opts.voiceName, 'Microsoft Zira');
+});
+
+test('a new install opens the Get started page; an update does not', async () => {
+  calls.created.length = 0;
+  for (const fn of listeners['runtime.onInstalled']) fn({ reason: 'update' });
+  await settle();
+  assert.deepEqual(calls.created, []);
+  for (const fn of listeners['runtime.onInstalled']) fn({ reason: 'install' });
+  await settle();
+  assert.deepEqual(calls.created, ['chrome-extension://test/options.html#welcome']);
 });
 
 test('install runs the settings migration', async () => {

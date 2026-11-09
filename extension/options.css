@@ -72,21 +72,25 @@ body {
   transition: background 0.2s, color 0.2s;
 }
 .server-badge.online  { background: #1e3a2a; color: #a6e3a1; }
-.server-badge.offline { background: #3a1e1e; color: #f38ba8; }
+.server-badge.offline { background: #313244; color: #a6adc8; }
 
 /* ─── Tabs ───────────────────────────────────────────────────────────────────── */
 .tabs {
   display: flex;
   gap: 0;
-  border-bottom: 2px solid #313244;
+  /* The track is an inset shadow, not a border, so each tab's own bottom
+     border paints over it inside the scroll box (a negative margin would be
+     clipped by overflow). */
+  box-shadow: inset 0 -2px 0 #313244;
   margin-bottom: 18px;
+  overflow-x: auto;
+  scrollbar-width: none;
 }
 
 .tab {
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
-  margin-bottom: -2px;
   padding: 11px 16px;
   font-size: 13px;
   font-weight: 600;
@@ -95,6 +99,7 @@ body {
   letter-spacing: 0.01em;
   transition: color 0.15s, border-color 0.15s;
   outline: none;
+  white-space: nowrap;
 }
 .tab:hover  { color: #cdd6f4; }
 .tab.active { color: #cba6f7; border-bottom-color: #cba6f7; }
@@ -912,4 +917,71 @@ body {
   padding: 32px 0;
   color: #45475a;
   font-size: 13px;
+}
+
+/* ─── Get started tab ────────────────────────────────────────────────────────── */
+.welcome .panel-blurb { font-size: 13px; }
+.welcome .setting-code { color: #a6e3a1; padding: 1px 6px; }
+.welcome-sample {
+  font-size: 14px;
+  line-height: 1.6;
+  color: #cdd6f4;
+  background: #181825;
+  border: 1px solid #313244;
+  border-radius: 7px;
+  padding: 10px 12px;
+  margin-bottom: 11px;
+}
+.welcome-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.welcome-actions .setting-desc { margin-top: 0; }
+.welcome-note { margin-top: 10px; font-size: 12px; color: #f9e2af; line-height: 1.5; }
+.welcome-how { margin-top: 11px; }
+.welcome-how em { color: #cba6f7; font-style: normal; }
+.welcome-how kbd, .welcome kbd {
+  font-family: "SF Mono", "Fira Code", Consolas, monospace;
+  font-size: 11px;
+  background: #313244;
+  border: 1px solid #45475a;
+  border-radius: 4px;
+  padding: 1px 5px;
+  color: #cdd6f4;
+}
+.welcome-group-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 11px; }
+.welcome-group-head .settings-group-title { margin-bottom: 0; }
+.welcome-engines { list-style: none; display: flex; flex-direction: column; gap: 10px; }
+.welcome-engines li {
+  display: grid;
+  grid-template-columns: 92px 76px 1fr auto;
+  align-items: center;
+  gap: 10px;
+}
+.welcome-engines .setting-desc { margin-top: 0; }
+.welcome-engine-name { font-size: 13px; font-weight: 600; color: #cdd6f4; }
+.welcome .setting-status.offline { color: #f9e2af; }
+.welcome-steps { padding-left: 20px; display: flex; flex-direction: column; gap: 10px; margin-bottom: 11px; }
+.welcome-steps li { font-size: 13px; color: #bac2de; line-height: 1.55; }
+.welcome-steps li::marker { color: #cba6f7; font-weight: 700; }
+.welcome-code {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 8px;
+  background: #11111b;
+  border: 1px solid #313244;
+  border-radius: 7px;
+  padding: 10px 12px;
+}
+.welcome-code pre {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  font-family: "SF Mono", "Fira Code", Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #a6e3a1;
+}
+.welcome-done { margin-top: 4px; font-size: 13px; color: #a6e3a1; }
+@media (max-width: 560px) {
+  .welcome-engines li { grid-template-columns: 1fr auto; }
+  .welcome-engines .setting-desc { grid-column: 1 / -1; }
 }
