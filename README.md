@@ -18,7 +18,7 @@ Set up Piper for natural local voices, and add Kokoro only if you want its voice
 > The GitHub repo was `n8watkins/piper-tts` (the old URL redirects), and settings saved by Piper TTS carry over automatically.
 > See [docs/NAMING.md](docs/NAMING.md) for the name and what a rename touches.
 
-<img src="screenshots/piper-icon.png" alt="VoiceDock extension icon" width="96">
+<img src="extension/icons/icon128.png" alt="VoiceDock extension icon" width="96">
 
 ## Screenshots
 
@@ -60,7 +60,7 @@ voicedock/                      (VoiceDock)
 │   └── TRAY_PLAN.md            The n8voice N8 Tray module that runs both engines (built)
 ├── UPDATE_WINDOWS_SERVER.md    How to update the Piper server running on Windows
 ├── test/                       node --test: extension helpers, engine routing, Piper server contract
-└── tools/                      esbuild, version bump, Windows deploy, screenshots, git hooks
+└── tools/                      esbuild, version bump, Windows deploy, screenshots, git hooks, icon sources
 ```
 
 `servers/kokoro` was moved in from the standalone `kokoro-tts` repo with `git subtree`, so its history is kept (see [its README](servers/kokoro/README.md#history)).
