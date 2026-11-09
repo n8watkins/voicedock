@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 
 const online = { 'http://127.0.0.1:7477': true, 'http://127.0.0.1:7478': true };
 const calls = { runtime: [], tts: [], hints: [], injected: [], tabMessages: [], created: [] };
-// Tabs as the page script sees them: which have content.js running, which
+// Tabs as the page script sees them: which have the page script running, which
 // Chrome lets the extension script (activeTab granted), and their selection.
 const pages = { scripted: new Set(), scriptable: new Set([7, 42]), selection: { 42: 'Hello there' } };
 const store = { fallback: true };
@@ -147,7 +147,7 @@ test('the shortcut adds the page script to the tab it was pressed on, then reads
   store.activeId = 'p';
   onCommand('read-selection', { id: 42 });
   await settle();
-  assert.deepEqual(calls.injected, [{ tabId: 42, files: ['content.js'] }]);
+  assert.deepEqual(calls.injected, [{ tabId: 42, files: ['dist/page.js'] }]);
   const [msg] = speakTextMessages();
   assert.equal(msg.text, 'Hello there');
   assert.equal(msg.ttsUrl, 'http://127.0.0.1:7477/tts');
@@ -174,7 +174,7 @@ test('the right-click menu adds the player bar to that page, and playback state 
   store.activeId = 'p';
   await onMenuClick({ menuItemId: 'read-selection', selectionText: 'Read me' }, { id: 7 });
   await settle();
-  assert.deepEqual(calls.injected, [{ tabId: 7, files: ['content.js'] }]);
+  assert.deepEqual(calls.injected, [{ tabId: 7, files: ['dist/page.js'] }]);
   assert.equal(speakTextMessages()[0].text, 'Read me');
   const stateTabs = new Set(calls.tabMessages.filter((m) => m.type === 'playback-state').map((m) => m.tabId));
   assert.deepEqual([...stateTabs], [7]);

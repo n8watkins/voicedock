@@ -93,8 +93,8 @@ test('chooseEngine: the browser engine never needs a server', () => {
 });
 
 test('kokoro voice names are readable', () => {
-  assert.deepEqual(kokoroVoiceDetails('af_heart'), { name: 'Heart', language: 'US English', gender: 'female' });
-  assert.deepEqual(kokoroVoiceDetails('bm_george'), { name: 'George', language: 'UK English', gender: 'male' });
+  assert.deepEqual(kokoroVoiceDetails('af_heart'), { name: 'Heart', language: 'US English', baseLanguage: 'English', gender: 'female' });
+  assert.deepEqual(kokoroVoiceDetails('bm_george'), { name: 'George', language: 'UK English', baseLanguage: 'English', gender: 'male' });
   assert.equal(kokoroVoiceDetails('en_US-amy-medium.onnx'), null);
   assert.equal(formatVoiceName('jf_alpha'), 'Alpha · Japanese');
   assert.equal(formatVoiceName('en_US-amy-medium.onnx'), 'Amy · Medium');

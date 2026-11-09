@@ -2,18 +2,20 @@
 // Engine URLs, the seed profile, engine selection and the settings migration
 // are shared with the React UI (src/shared.js) so they can't drift apart.
 import {
+  ENGINE_SEEN_KEY,
   LOCAL_ENGINE_IDS,
   chooseEngine,
   defaultProfile,
   engineBaseUrl,
   engineLabel,
+  markEngineSeen,
   normalizeProfile,
   pickDeviceVoice,
   runSettingsMigration,
 } from "./src/shared.js";
 
 const OFFSCREEN_URL  = "offscreen.html";
-const PAGE_SCRIPT    = "content.js";
+const PAGE_SCRIPT    = "dist/page.js"; // built from src/page.js
 
 async function getProfileState() {
   const state = await chrome.storage.local.get(["profiles", "activeId"]);
@@ -45,7 +47,7 @@ async function rebuildMenus() {
   // Main read item - uses the active profile
   chrome.contextMenus.create({
     id:       "read-selection",
-    title:    "Read selected text aloud",
+    title:    "Read selection",
     contexts: ["selection"]
   });
 
@@ -220,11 +222,22 @@ async function checkEngineOnline(engine) {
     const res   = await fetch(`${baseUrl}/health`, { signal: ctrl.signal });
     clearTimeout(timer);
     _engineOnlineCache[engine] = { value: res.ok, expiresAt: Date.now() + 5000 };
+    if (res.ok) rememberEngineSeen(engine);
     return res.ok;
   } catch (_) {
     _engineOnlineCache[engine] = { value: false, expiresAt: Date.now() + 2000 };
     return false;
   }
+}
+
+// Remembers that an engine answered, so the UI can tell "Installed but not
+// running" from "Not installed" later (see engineState in src/shared.js).
+async function rememberEngineSeen(engine) {
+  try {
+    const stored = await chrome.storage.local.get(ENGINE_SEEN_KEY);
+    const next = markEngineSeen(stored[ENGINE_SEEN_KEY], engine);
+    if (next) await chrome.storage.local.set({ [ENGINE_SEEN_KEY]: next });
+  } catch (_) {}
 }
 
 function invalidateEngineCache() {
@@ -277,7 +290,7 @@ function notifyPlaybackState(tabId = null) {
 // ─── Page script, injected on demand ─────────────────────────────────────────
 // VoiceDock has no content script on every site. When the user reads from a
 // tab (right-click menu, keyboard shortcut), Chrome grants activeTab for that
-// tab and content.js is injected into it with chrome.scripting, for the
+// tab and the page script (dist/page.js) is injected into it with chrome.scripting, for the
 // selection, the on-page player bar and hints. Pages Chrome doesn't let
 // extensions script (chrome://, the Web Store, the PDF viewer) get no player
 // bar; where Chrome offers the right-click menu there, it still reads.

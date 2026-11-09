@@ -39,3 +39,7 @@ desktop.ini
 .idea/
 *.swp
 *.swo
+
+# Playwright
+test-results/
+playwright-report/

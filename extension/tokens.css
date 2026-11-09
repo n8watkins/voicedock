@@ -1,0 +1,180 @@
+/* VoiceDock design tokens and shared atoms.
+ *
+ * One palette for the popup, the settings page and the on-page player bar,
+ * taken from the mark (tools/icon/voicedock.svg): ink #150f33, a violet ramp
+ * #7c5cff to #c4b5fd, and the light dock line #ede9fe. Colour beyond violet is
+ * reserved for engine status: green Ready, amber Installed but not running,
+ * grey Not installed, violet Starting.
+ *
+ * Light and dark follow the system; [data-theme] on the root forces one.
+ * The selectors include :host so the player bar's shadow root gets the same
+ * tokens. Fonts are bundled (fonts/, SIL OFL 1.1); a shadow root can't load
+ * @font-face, so the player bar falls back to the system UI font. */
+
+@font-face {
+  font-family: "Onest";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("fonts/onest-latin.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Bricolage Grotesque";
+  font-style: normal;
+  font-weight: 500 700;
+  font-display: swap;
+  src: url("fonts/bricolage-grotesque-latin.woff2") format("woff2");
+}
+
+:root, :host {
+  --bg: #f5f3fc;
+  --surface: #ffffff;
+  --surface-2: #efebfb;
+  --surface-3: #e6e0f8;
+  --ink: #150f33;
+  --muted: #5b5582;
+  --faint: #7a74a0;
+  --line: #ddd6f3;
+  --line-strong: #c9bff0;
+  --accent: #6544f0;
+  --accent-hover: #5636dc;
+  --accent-soft: #ede9fe;
+  --accent-ink: #ffffff;
+  --mark-ink: #150f33;
+  --mark-hi: #c4b5fd;
+  --mark-lo: #7c5cff;
+  --ok: #0f7d55;
+  --ok-soft: #dcf3e8;
+  --warn: #9a5400;
+  --warn-soft: #fcefd6;
+  --err: #b8323d;
+  --err-soft: #fbe2e4;
+  --idle: #625e86;
+  --idle-soft: #ebe9f3;
+  --code-bg: #f3f0fd;
+  --highlight: #e4dcff;
+  --scrim: rgb(12 9 32 / 0.45);
+  --shadow: 0 1px 2px rgb(21 15 51 / 0.06), 0 8px 28px rgb(21 15 51 / 0.10);
+  --shadow-pop: 0 2px 6px rgb(21 15 51 / 0.10), 0 18px 48px rgb(21 15 51 / 0.18);
+
+  --f-display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  --f-ui: "Onest", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --f-mono: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
+
+  --r-s: 6px;
+  --r-m: 10px;
+  --r-l: 14px;
+
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]), :host {
+    --bg: #0c0920; --surface: #150f33; --surface-2: #1d1645; --surface-3: #261e57;
+    --ink: #eeeaff; --muted: #aaa3d6; --faint: #8b84b8; --line: #2b2361; --line-strong: #3b3180;
+    --accent: #a18aff; --accent-hover: #b6a4ff; --accent-soft: #2a2166; --accent-ink: #120c2e;
+    --ok: #52d49d; --ok-soft: #10342a; --warn: #f3b562; --warn-soft: #3a2a10; --err: #ff8089; --err-soft: #3e1822;
+    --idle: #a29ec6; --idle-soft: #221c4a; --code-bg: #0f0b27; --highlight: #3a2f7a;
+    --scrim: rgb(0 0 0 / 0.55);
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 10px 30px rgb(0 0 0 / 0.45);
+    --shadow-pop: 0 2px 6px rgb(0 0 0 / 0.5), 0 18px 48px rgb(0 0 0 / 0.6);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0c0920; --surface: #150f33; --surface-2: #1d1645; --surface-3: #261e57;
+  --ink: #eeeaff; --muted: #aaa3d6; --faint: #8b84b8; --line: #2b2361; --line-strong: #3b3180;
+  --accent: #a18aff; --accent-hover: #b6a4ff; --accent-soft: #2a2166; --accent-ink: #120c2e;
+  --ok: #52d49d; --ok-soft: #10342a; --warn: #f3b562; --warn-soft: #3a2a10; --err: #ff8089; --err-soft: #3e1822;
+  --idle: #a29ec6; --idle-soft: #221c4a; --code-bg: #0f0b27; --highlight: #3a2f7a;
+  --scrim: rgb(0 0 0 / 0.55);
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 10px 30px rgb(0 0 0 / 0.45);
+  --shadow-pop: 0 2px 6px rgb(0 0 0 / 0.5), 0 18px 48px rgb(0 0 0 / 0.6);
+  color-scheme: dark;
+}
+
+/* ─── Icons ─────────────────────────────────────────────────────────────── */
+svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; display: block; }
+svg.i.s { width: 14px; height: 14px; }
+svg.i.l { width: 20px; height: 20px; }
+svg.i.fill { fill: currentColor; stroke: none; }
+
+/* ─── Buttons ───────────────────────────────────────────────────────────── */
+.vd-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  border-radius: 8px; border: 1px solid transparent; padding: 7px 12px;
+  font: 600 13px/1.2 var(--f-ui); white-space: nowrap; cursor: pointer; text-decoration: none;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.vd-btn:disabled { cursor: not-allowed; opacity: 0.55; }
+.vd-btn.primary { background: var(--accent); color: var(--accent-ink); }
+.vd-btn.primary:hover:not(:disabled) { background: var(--accent-hover); }
+.vd-btn.ghost { background: transparent; border-color: var(--line); color: var(--ink); }
+.vd-btn.ghost:hover:not(:disabled) { background: var(--surface-2); }
+.vd-btn.quiet { background: transparent; color: var(--accent); padding-inline: 6px; }
+.vd-btn.quiet:hover:not(:disabled) { background: var(--accent-soft); }
+.vd-btn.danger { background: transparent; border-color: color-mix(in srgb, var(--err) 40%, var(--line)); color: var(--err); }
+.vd-btn.danger:hover:not(:disabled) { background: var(--err-soft); }
+.vd-btn.sm { padding: 5px 9px; font-size: 12px; border-radius: 7px; }
+
+.vd-icon-btn {
+  display: inline-grid; place-items: center; width: 30px; height: 30px; padding: 0;
+  border-radius: 8px; border: 0; background: transparent; color: var(--muted); cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.vd-icon-btn:hover:not(:disabled) { background: var(--surface-2); color: var(--ink); }
+.vd-icon-btn:disabled { opacity: 0.4; cursor: default; }
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ─── Engine status: one component, four states ─────────────────────────── */
+.vd-status {
+  display: inline-flex; align-items: center; gap: 6px;
+  font: 600 12px/1.3 var(--f-ui); padding: 3px 9px 3px 8px; border-radius: 999px; white-space: nowrap;
+}
+.vd-status::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: none; }
+.vd-status.ready { color: var(--ok); background: var(--ok-soft); }
+.vd-status.starting { color: var(--accent); background: var(--accent-soft); }
+.vd-status.starting::before { animation: vd-pulse 1s ease-in-out infinite; }
+.vd-status.stopped { color: var(--warn); background: var(--warn-soft); }
+.vd-status.missing, .vd-status.checking { color: var(--idle); background: var(--idle-soft); }
+.vd-status.missing::before { background: transparent; box-shadow: inset 0 0 0 1.5px currentColor; }
+.vd-status.checking::before { opacity: 0.45; }
+.vd-status.compact { padding: 0; background: none; font-weight: 500; }
+.vd-status.dot { padding: 0; background: none; font-size: 0; gap: 0; }
+
+@keyframes vd-pulse { 50% { opacity: 0.25; transform: scale(0.7); } }
+@keyframes vd-spin { to { transform: rotate(360deg); } }
+.vd-spin { animation: vd-spin 0.8s linear infinite; }
+
+/* ─── Engine monogram (Pi, Ko, Ba) on the mark's ink ────────────────────── */
+.vd-mono {
+  width: 34px; height: 34px; border-radius: 9px; flex: none; position: relative; overflow: hidden;
+  display: grid; place-items: center; font: 700 13px/1 var(--f-display); letter-spacing: -0.01em;
+  background: var(--mark-ink); color: var(--mark-hi);
+}
+.vd-mono::after { content: ""; position: absolute; left: 6px; right: 6px; bottom: 5px; height: 2px; border-radius: 2px; background: var(--mark-hi); opacity: 0.55; }
+.vd-mono.sm { width: 26px; height: 26px; border-radius: 7px; font-size: 11px; }
+.vd-mono.sm::after { bottom: 4px; left: 5px; right: 5px; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .vd-mono { background: var(--surface-3); } }
+:root[data-theme="dark"] .vd-mono { background: var(--surface-3); }
+
+/* ─── Small things ──────────────────────────────────────────────────────── */
+.vd-tag { display: inline-flex; align-items: center; font: 500 11px/1 var(--f-ui); padding: 3px 6px; border-radius: 5px; background: var(--surface-2); color: var(--muted); white-space: nowrap; }
+.vd-tag.accent { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+kbd { display: inline-block; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 1px 5px; font: 500 11px/1.4 var(--f-mono); background: var(--surface); color: var(--muted); }
+.vd-keys { white-space: nowrap; }
+
+.vd-switch { position: relative; width: 32px; height: 18px; flex: none; display: inline-block; }
+.vd-switch input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.vd-switch span { position: absolute; inset: 0; border-radius: 999px; background: var(--surface-3); transition: background 0.15s; pointer-events: none; }
+.vd-switch span::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--surface); box-shadow: 0 1px 2px rgb(0 0 0 / 0.25); transition: transform 0.15s; }
+.vd-switch input:checked + span { background: var(--accent); }
+.vd-switch input:checked + span::after { transform: translateX(14px); }
+.vd-switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+input[type="range"] { accent-color: var(--accent); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}

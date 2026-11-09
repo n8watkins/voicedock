@@ -28,7 +28,7 @@ function unzip(buf) {
 
 test('the package has what Chrome loads and none of the React sources', () => {
   const files = storeFiles();
-  for (const path of ['manifest.json', 'background.js', 'content.js', 'offscreen.html', 'offscreen.js',
+  for (const path of ['manifest.json', 'background.js', 'dist/page.js', 'offscreen.html', 'offscreen.js',
     'popup.html', 'options.html', 'dist/popup.js', 'dist/options.js', 'src/shared.js', 'icons/icon128.png']) {
     assert.ok(files.includes(path), `${path} is packaged`);
   }

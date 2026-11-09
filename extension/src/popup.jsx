@@ -12,6 +12,7 @@ import {
   normalizeProfile,
   runSettingsMigration,
 } from './shared.js';
+import { Icon } from './ui.jsx';
 
 function PopupApp() {
   const [profiles, setProfiles] = useState([]);
@@ -234,35 +235,35 @@ function PopupApp() {
         <span className="app-title">{APP_NAME}</span>
         <span className={`status-dot ${status}`} title={status === 'online' ? `${engineLabel(activeEngine)} online` : status === 'offline' ? `${engineLabel(activeEngine)} offline` : 'Checking...'} />
         <span className="app-version">{version}</span>
-        <button className="btn-gear" title="Open settings" onClick={openSettings}>⚙</button>
+        <button className="btn-gear" title="Open settings" aria-label="Open settings" onClick={openSettings}><Icon name="settings" /></button>
       </header>
 
       <div className="profile-card">
-        <button className="btn-nav" title="Previous profile" disabled={profiles.length <= 1} onClick={() => selectProfile(activeIdx - 1)}>‹</button>
+        <button className="btn-nav" title="Previous profile" disabled={profiles.length <= 1} onClick={() => selectProfile(activeIdx - 1)}><Icon name="chevron-left" /></button>
         <div className="profile-info">
           <span className="profile-name">{activeProfile?.name || 'No profiles'}</span>
           <span className="profile-voice" title={activeProfile ? describeProfileVoice(activeProfile) : ''}>{activeProfile ? describeProfileVoice(activeProfile, { compact: true }) : 'Open Settings to create one'}</span>
         </div>
-        <button className="btn-nav" title="Next profile" disabled={profiles.length <= 1} onClick={() => selectProfile(activeIdx + 1)}>›</button>
+        <button className="btn-nav" title="Next profile" disabled={profiles.length <= 1} onClick={() => selectProfile(activeIdx + 1)}><Icon name="chevron-right" /></button>
         <button className="btn-add-profile" title="New profile" onClick={() => {
           if (profiles.length >= MAX_PROFILES) {
             showError(`You're at the ${MAX_PROFILES}-profile limit. Delete one in Settings first.`);
             return;
           }
           setNewProfileOpen(true);
-        }}>＋</button>
+        }} aria-label="New profile"><Icon name="plus" /></button>
       </div>
 
       {engineHint && (
         <p className="engine-hint">
           {engineHint.text}{' '}
-          <button className="engine-hint-link" onClick={openGetStarted}>{engineHint.action} →</button>
+          <button className="engine-hint-link" onClick={openGetStarted}>{engineHint.action}</button>
         </p>
       )}
 
       {newProfileOpen && (
         <div className="new-profile-form">
-          <span className="new-profile-header">New Profile</span>
+          <span className="new-profile-header">New profile</span>
           <input
             ref={inputRef}
             className="new-profile-input"
@@ -296,15 +297,15 @@ function PopupApp() {
           <span className="slider-val">{fmt(activeProfile?.rate ?? 1.0)}×</span>
         </div>
         <div className="slider-row">
-          <span className="slider-lbl">Vol</span>
+          <span className="slider-lbl">Volume</span>
           <input className="slider" type="range" min="0" max="2" step="0.05" value={activeProfile?.volume ?? 1.0} disabled={!activeProfile} onChange={(event) => updateActiveProfile({ volume: Number.parseFloat(event.target.value) })} />
-          <span className="slider-val">{fmt(activeProfile?.volume ?? 1.0)}</span>
+          <span className="slider-val">{Math.round((activeProfile?.volume ?? 1.0) * 100)}%</span>
         </div>
       </div>
 
       <div className="actions">
-        <button className="btn btn-test" disabled={!activeProfile || testing} onClick={testVoice}>{testing ? 'Playing…' : '▶ Test'}</button>
-        <button className="btn btn-stop" onClick={stopReading}>■ Stop</button>
+        <button className="btn btn-test" disabled={!activeProfile || testing} onClick={testVoice}><Icon name="play" size="s" />{testing ? 'Playing…' : 'Test'}</button>
+        <button className="btn btn-stop" onClick={stopReading}><Icon name="stop" size="s" />Stop</button>
       </div>
 
       {showProgress && (
@@ -321,7 +322,7 @@ function PopupApp() {
 
       {error && <p className="test-error">{error}</p>}
 
-      <p className="footer-hint">Select text → right-click → <em>Read aloud</em></p>
+      <p className="footer-hint">Select text, right-click, then <em>Read selection</em></p>
     </div>
   );
 }

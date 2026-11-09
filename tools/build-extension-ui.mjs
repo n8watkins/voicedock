@@ -32,4 +32,11 @@ await Promise.all([
     entryPoints: [resolve(root, 'extension', 'src', 'options.jsx')],
     outfile: resolve(outdir, 'options.js'),
   }),
+  // The page script background.js injects into the tab being read.
+  build({
+    ...common,
+    entryPoints: [resolve(root, 'extension', 'src', 'page.js')],
+    outfile: resolve(outdir, 'page.js'),
+    loader: { '.css': 'text' },
+  }),
 ]);
