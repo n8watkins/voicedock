@@ -139,6 +139,28 @@ The Unix launcher is POSIX-shell syntax checked in this repo. Runtime verificati
 
 ---
 
+## Engines from the signed catalog
+
+`servers/catalog/engines.json` lists every download VoiceDock installs, each pinned by SHA-256, and `engines.json.minisig` signs it with the VoiceDock catalog key (minisign format; the public key is `servers/catalog/voicedock-catalog.pub` and is built into the hub).
+Anyone can check it with the minisign tool: `minisign -Vm servers/catalog/engines.json -p servers/catalog/voicedock-catalog.pub`.
+
+`engines.js` installs from it, one step per command, and never on its own:
+
+```bash
+node engines.js catalog                # check the signature, list the downloads for this computer
+node engines.js install pocket         # download, check SHA-256, install side by side, make current
+node engines.js list                   # installed versions, current and previous
+node engines.js rollback pocket        # back to the version before, without downloading
+node engines.js remove pocket 4.0.1    # delete a version that is not in use
+node engines.js uninstall pocket       # delete every version and its data
+```
+
+Versions live side by side in `servers/engines/<engine>/<version>/` (`VOICEDOCK_ENGINES_DIR` overrides), with `state.json` naming the current and previous one.
+A download whose size or SHA-256 differs from the catalog is deleted and nothing changes; a catalog whose signature fails, or one older than the newest already used (its `serial`), installs nothing.
+
+To publish a new download: edit `engines.json`, raise `serial`, run `npm run catalog:sign` (needs the secret key in `~/.config/voicedock/catalog-signing.key`), and commit both files.
+CI runs `npm run catalog:verify`.
+
 ## Configuration
 
 | Variable | Default | Purpose |

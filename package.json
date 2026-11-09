@@ -20,7 +20,9 @@
     "release": "release-kit release",
     "release:check": "release-kit check && npm run check:names && npm ci --prefix servers/piper && npm test && npm run build",
     "release:artifacts": "node tools/package-store.mjs --out release-artifacts",
-    "test:kokoro": "python3 -m unittest discover -s servers/kokoro/tests"
+    "test:kokoro": "python3 -m unittest discover -s servers/kokoro/tests",
+    "catalog:sign": "node tools/catalog-sign.mjs sign",
+    "catalog:verify": "node tools/catalog-sign.mjs verify"
   },
   "dependencies": {
     "react": "^19.3.1",
