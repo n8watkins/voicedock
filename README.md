@@ -405,7 +405,7 @@ Kokoro: it starts on demand through VoiceDock's server, so check that first; the
 Then press **Check again** on Voices & Engines.
 
 **A profile sounds like the Basic voice.**
-Its engine is offline and the fallback kicked in; the page shows a short note when that happens.
+Its engine could not read and the fallback kicked in. The player bar says so in an amber note that stays until you dismiss it, with one button to the engine's setup (a red note means nothing could read).
 Start the engine, or turn the fallback off in Voices & Engines to get an error instead.
 
 **No audio at all.**

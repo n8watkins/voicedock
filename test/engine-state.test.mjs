@@ -114,3 +114,15 @@ test('text splits into sentences: short fragments join, long ones break at a com
   assert.equal(sentenceLabel({ current: 0, total: 6 }), 'Starting');
   assert.equal(sentenceLabel({ current: 1, total: 1 }), 'One sentence');
 });
+
+test('notes on the page: amber while the Basic voice reads on, red when nothing can, one fix each', async () => {
+  const { readNote, basicVoiceNote } = await import('../extension/src/shared.js');
+  assert.deepEqual(readNote({ engine: 'kokoro', state: 'stopped' }), { tone: 'warn', text: 'Kokoro is not running. Reading with the Basic voice.', fix: { label: 'How to start', engine: 'kokoro' } });
+  assert.equal(readNote({ engine: 'kokoro', state: 'missing' }).fix.label, 'Set up Kokoro');
+  assert.equal(readNote({ engine: 'kokoro', when: 'mid', reason: 'failed' }).text, 'Kokoro stopped. Reading on with the Basic voice.');
+  assert.deepEqual(readNote({ engine: 'kokoro', when: 'mid', reason: 'low-memory' }), { tone: 'warn', text: 'Memory is low, so Kokoro stopped. Reading on with the Basic voice.', fix: null });
+  assert.deepEqual(readNote({ engine: 'piper', when: 'mid', fellBack: false }), { tone: 'err', text: 'Piper stopped while reading, and the Basic voice fallback is off.', fix: { label: 'How to start', engine: 'piper' } });
+  assert.equal(basicVoiceNote({ noVoices: true }).fix.engine, 'piper');
+  assert.equal(basicVoiceNote({ error: 'synthesis failed.' }).text, 'The Basic voice could not read this: synthesis failed.');
+  assert.equal(basicVoiceNote().text, 'The Basic voice could not read this.');
+});

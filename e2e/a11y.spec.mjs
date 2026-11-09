@@ -80,6 +80,28 @@ test('the guided setup panel: no accessibility violations', async ({ engines, op
   }
 });
 
+test.describe('player bar notes', () => {
+  test.use({ pageAccess: true, openShadow: true });
+
+  test('a red note: no accessibility violations', async ({ context, engines, articleUrl, openPopup, seed }) => {
+    await seed({ ...SEED, activeId: 'articles' });
+    engines.piper.set('stopped');
+    const article = await context.newPage();
+    await article.goto(articleUrl);
+    const popup = await openPopup();
+    await article.bringToFront();
+    await article.evaluate(() => {
+      const range = document.createRange();
+      range.selectNodeContents(document.getElementById('p1'));
+      window.getSelection().removeAllRanges();
+      window.getSelection().addRange(range);
+    });
+    await popup.getByRole('button', { name: 'Read selection' }).click();
+    await expect(article.locator('.note')).toBeVisible();
+    await expectNoViolations(article, 'player bar note', 'body > div:last-child');
+  });
+});
+
 test.describe('player bar', () => {
   test.use({ pageAccess: true, openShadow: true });
 

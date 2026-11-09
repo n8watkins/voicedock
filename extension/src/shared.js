@@ -161,6 +161,41 @@ export function startingText(id, hub) {
   return `Starting ${engineLabel(id)}, about ${startSeconds(id, hub)} s`;
 }
 
+// ─── Notes on the page ───────────────────────────────────────────────────────
+// When an engine can't read, the player bar says so and keeps the note until
+// it is dismissed. Amber (warn): VoiceDock still reads, with the Basic voice.
+// Red (err): nothing can read. Each note has at most one fix: a link to the
+// engine's guided setup (options.html#engines:<id>).
+//   { tone: 'warn' | 'err', text, fix: { label, engine } | null }
+//
+// when: 'start' (the engine couldn't read when the read began) or 'mid' (it
+// stopped while reading). reason: the hub's "not-installed", "low-memory" or
+// "failed", or ''. state: the engine's state word, when known.
+export function readNote({ engine, when = 'start', reason = '', state = '', fellBack = true }) {
+  const label = engineLabel(engine);
+  const missing = reason === 'not-installed' || state === 'missing';
+  let first;
+  if (reason === 'low-memory') first = `Memory is low, so ${label} ${when === 'mid' ? 'stopped' : 'is off for now'}.`;
+  else if (missing) first = `${label} is not set up.`;
+  else first = when === 'mid' ? `${label} stopped.` : `${label} is not running.`;
+  const fix = reason === 'low-memory' ? null : { label: missing ? `Set up ${label}` : 'How to start', engine };
+  if (fellBack) {
+    return { tone: 'warn', text: `${first} ${when === 'mid' ? 'Reading on' : 'Reading'} with the Basic voice.`, fix };
+  }
+  // Red: say what happened and why nothing reads on, in one sentence.
+  return { tone: 'err', text: `${first.replace(/\.$/, '')}${when === 'mid' && !missing && reason !== 'low-memory' ? ' while reading' : ''}, and the Basic voice fallback is off.`, fix };
+}
+
+// The Basic voice itself failed (a chrome.tts error), or this computer has no
+// voice for it at all.
+export function basicVoiceNote({ error = '', noVoices = false } = {}) {
+  if (noVoices) {
+    return { tone: 'err', text: 'Nothing to read with. This computer has no built-in voice, and no engine is ready.', fix: { label: 'Set up Piper', engine: 'piper' } };
+  }
+  const why = String(error || '').trim().replace(/\.$/, '');
+  return { tone: 'err', text: `The Basic voice could not read this${why ? `: ${why}` : ''}.`, fix: null };
+}
+
 // Where an engine's voices are listed: the hub lists Kokoro's from its voices
 // file, so this never starts Kokoro.
 export function voicesUrl(id) {
