@@ -12,6 +12,7 @@ import {
 } from "./src/shared.js";
 
 const OFFSCREEN_URL  = "offscreen.html";
+const PAGE_SCRIPT    = "content.js";
 
 async function getProfileState() {
   const state = await chrome.storage.local.get(["profiles", "activeId"]);
@@ -231,22 +232,66 @@ function sendPlaybackStateToTab(tabId) {
   chrome.tabs.sendMessage(tabId, {
     type: "playback-state",
     state: playbackStateForTab(tabId)
-  }).catch(() => {});
+  }).catch(() => { _pageTabs.delete(tabId); });
 }
 
+// Playback changes go to every tab that has the page script, which is only
+// the tabs the user has read from (see ensurePageScript).
 function notifyPlaybackState(tabId = null) {
   if (tabId != null) {
     sendPlaybackStateToTab(tabId);
     return;
   }
-
-  chrome.tabs.query({}, (tabs) => {
-    if (chrome.runtime.lastError) return;
-    for (const tab of tabs) {
-      if (tab.id != null) sendPlaybackStateToTab(tab.id);
-    }
-  });
+  for (const id of _pageTabs) sendPlaybackStateToTab(id);
 }
+
+// ─── Page script, injected on demand ─────────────────────────────────────────
+// VoiceDock has no content script on every site. When the user reads from a
+// tab (right-click menu, keyboard shortcut), Chrome grants activeTab for that
+// tab and content.js is injected into it with chrome.scripting, for the
+// selection, the on-page player bar and hints. Pages Chrome doesn't let
+// extensions script (chrome://, the Web Store, the PDF viewer) get no player
+// bar; where Chrome offers the right-click menu there, it still reads.
+const _pageTabs = new Set();          // tabs whose page script is listening
+const _pageScriptPending = new Map(); // tabId -> in-flight injection
+
+async function pagePresent(tabId) {
+  try {
+    const response = await chrome.tabs.sendMessage(tabId, { type: "ping" });
+    return response?.ok === true;
+  } catch (_) {
+    return false;
+  }
+}
+
+async function ensurePageScript(tabId) {
+  if (tabId == null || tabId < 0) return false;
+  if (_pageScriptPending.has(tabId)) return _pageScriptPending.get(tabId);
+  const pending = (async () => {
+    if (await pagePresent(tabId)) {
+      _pageTabs.add(tabId);
+      return true;
+    }
+    try {
+      await chrome.scripting.executeScript({ target: { tabId }, files: [PAGE_SCRIPT] });
+      _pageTabs.add(tabId);
+      return true;
+    } catch (_) {
+      _pageTabs.delete(tabId);
+      return false;
+    }
+  })();
+  _pageScriptPending.set(tabId, pending);
+  try {
+    return await pending;
+  } finally {
+    _pageScriptPending.delete(tabId);
+  }
+}
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  _pageTabs.delete(tabId);
+});
 
 // ─── Local engine TTS (Piper or Kokoro, played by the offscreen document) ────
 async function speakWithEngine(engine, text, settings) {
@@ -370,6 +415,7 @@ async function getActiveTab() {
 
 async function getTabSelection(tab) {
   if (!tab?.id) return "";
+  if (!(await ensurePageScript(tab.id))) return "";
   try {
     const response = await chrome.tabs.sendMessage(tab.id, { type: "get-selection" });
     return response?.text?.trim() || "";
@@ -383,13 +429,13 @@ function showTabHint(tab, message) {
   chrome.tabs.sendMessage(tab.id, { type: "show-hint", message }).catch(() => {});
 }
 
-async function readSelectionFromActiveTab() {
+async function readSelectionFromActiveTab(commandTab = null) {
   if (_isPlaying) {
     await stopAll();
     return;
   }
 
-  const tab = await getActiveTab();
+  const tab = commandTab?.id != null ? commandTab : await getActiveTab();
   const text = await getTabSelection(tab);
   if (!text) {
     showTabHint(tab, "Select text first");
@@ -438,6 +484,9 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   const text = info.selectionText?.trim();
   if (!text) return;
 
+  // The menu click granted activeTab: add the player bar to this page.
+  if (tab?.id != null) await ensurePageScript(tab.id);
+
   let { profiles, activeId } = await getProfileState();
 
   // If a specific profile was chosen from the submenu, switch to it and read
@@ -464,9 +513,9 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   await speakText(text, profile, tab?.id ?? null);
 });
 
-chrome.commands.onCommand.addListener((command) => {
+chrome.commands.onCommand.addListener((command, tab) => {
   if (command === "read-selection") {
-    readSelectionFromActiveTab().catch(err => console.error("[command:read-selection]", err));
+    readSelectionFromActiveTab(tab).catch(err => console.error("[command:read-selection]", err));
     return;
   }
   if (command === "pause-resume") {
@@ -546,6 +595,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // Content scripts use this once on startup; playback changes are pushed to
   // every tab so the overlay follows the user across normal webpages.
   if (message.type === "get-playback-state") {
+    if (sender.tab?.id != null) _pageTabs.add(sender.tab.id);
     sendResponse(playbackStateForTab(sender.tab?.id));
     return; // synchronous
   }
@@ -559,22 +609,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .then((result) => sendResponse(result))
       .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;
-  }
-
-  // Keyboard shortcut: Alt+Shift+R - always START reading with selected text.
-  // Stop is handled in the content script (sends stop-all when _localPlaying is true).
-  // This avoids the wrong-tab problem where Tab B's poll saw Tab A as "playing"
-  // and keyboard-read would stop instead of start.
-  if (message.type === "keyboard-read") {
-    const text = message.text || "";
-    if (!text) return;
-    _playingSourceTabId = sender.tab?.id ?? null;
-    (async () => {
-      const { profiles, activeId } = await getProfileState();
-      const profile = profiles.find(p => p.id === activeId) || profiles[0];
-      if (profile) await speakText(text, profile, sender.tab?.id ?? null);
-    })().catch(err => console.error("[keyboard-read]", err));
-    return;
   }
 
   // Overlay rocker: change the CURRENT playback's volume/speed only. These are
