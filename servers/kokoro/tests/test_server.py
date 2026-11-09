@@ -176,6 +176,23 @@ class ApiContractTests(ServerTestCase):
         self.request("POST", "/tts", {"text": "fast", "speed": 9})
         self.assertEqual(self.engine.calls[-1]["speed"], server.MAX_SPEED)
 
+    def test_health_lists_its_processes(self):
+        res, body = self.request("GET", "/health")
+        processes = json.loads(body)["processes"]
+        self.assertIsInstance(processes, list)
+        for entry in processes:
+            self.assertEqual(set(entry) - {"privateMb"}, {"pid", "startedAt", "parentPid", "role", "rssMb", "cpuPercent"})
+
+    def test_unload_route_asks_the_engine_to_release_now(self):
+        released = []
+        self.engine.unload_if_idle = lambda force=False: released.append(force) or True
+        res, body = self.request("POST", "/unload", {})
+        self.assertEqual(res.status, 200)
+        self.assertEqual(json.loads(body), {"ok": True, "released": True})
+        self.assertEqual(released, [True])
+        res, _ = self.request("POST", "/unload", {}, {"Origin": "https://example.com"})
+        self.assertEqual(res.status, 403)
+
     def test_error_shapes(self):
         cases = [
             ({"text": ""}, 400, "Text must not be empty."),
@@ -304,6 +321,23 @@ class LazyEngineTests(EngineFixture):
         self.assertEqual(self.releases, 1)
         self.assertIsNone(engine.seconds_until_unload())
         self.assertFalse(engine.unload_if_idle(), "nothing to release twice")
+
+    def test_forced_unload_releases_now_but_never_while_speaking(self):
+        engine = self.engine(idle=600)
+        self.assertFalse(engine.unload_if_idle(force=True), "nothing loaded yet")
+        engine.synthesize("hi", "af_heart", 1.0, "en-us")
+        self.assertFalse(engine.unload_if_idle(), "not idle long enough")
+        engine._active = 1
+        self.assertFalse(engine.unload_if_idle(force=True), "never while speaking")
+        engine._active = 0
+        self.assertTrue(engine.unload_if_idle(force=True))
+        self.assertFalse(engine.is_loaded())
+
+    def test_status_reports_how_long_the_load_took(self):
+        engine = self.engine()
+        self.assertIsNone(engine.status()["modelLoadMs"])
+        engine.synthesize("hi", "af_heart", 1.0, "en-us")
+        self.assertIsInstance(engine.status()["modelLoadMs"], int)
 
     def test_reloads_after_an_unload(self):
         engine = self.engine(idle=10)
@@ -666,6 +700,24 @@ class HelperTests(unittest.TestCase):
             handle.write(b"x" * 4096)
             handle.flush()
             server.drop_file_cache(Path(handle.name), Path(handle.name + ".missing"))
+
+    def test_process_reporter(self):
+        try:
+            import psutil  # noqa: F401
+        except ImportError:
+            self.assertEqual(server.ProcessReporter().report(), [])
+            return
+        reporter = server.ProcessReporter()
+        first = reporter.report()
+        self.assertEqual(len(first), 1)
+        self.assertEqual(first[0]["role"], "engine")
+        self.assertIsNone(first[0]["cpuPercent"], "no CPU figure before a second sample")
+        self.assertTrue(first[0]["startedAt"].endswith("Z"))
+        self.assertIsNotNone(reporter.report()[0]["cpuPercent"])
+
+    def test_iso_utc_ms(self):
+        self.assertIsNone(server.iso_utc_ms(None))
+        self.assertEqual(server.iso_utc_ms(0.25), "1970-01-01T00:00:00.250Z")
 
     def test_iso_utc(self):
         self.assertIsNone(server.iso_utc(None))

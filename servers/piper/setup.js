@@ -116,6 +116,14 @@ async function main() {
   await installPiper();
   for (const v of DEFAULT_VOICES) await installVoice(v);
 
+  // So N8 Tray (when it runs) finds VoiceDock; harmless without it.
+  try {
+    const { installManifest } = require('./hub/n8tray');
+    log(`• N8 Tray manifest: ${installManifest({ port: require('./config').PORT })}`);
+  } catch (err) {
+    log(`• N8 Tray manifest skipped: ${err.message}`);
+  }
+
   log('• Launching the tray…');
   spawn(process.execPath, [TRAY], { cwd: SERVER_DIR, detached: true, stdio: 'ignore', windowsHide: true }).unref();
 

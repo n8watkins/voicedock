@@ -53,7 +53,7 @@ test('the reader tracker samples readers while they run and keeps the last peak'
   assert.equal(snap.speaking, true);
   assert.equal(snap.activeVoice, 'en_US-amy-medium.onnx');
   assert.equal(snap.lastSpeakAt, '2026-11-02T18:00:00Z');
-  assert.deepEqual(snap.readers, [{ pid: 101, voice: 'en_US-amy-medium.onnx', rssMb: null }]);
+  assert.deepEqual(snap.readers, [{ pid: 101, voice: 'en_US-amy-medium.onnx', rssMb: null, startedAt: '2026-11-02T18:00:00.000Z' }]);
 
   await tick(40);
   snap = tracker.snapshot();
