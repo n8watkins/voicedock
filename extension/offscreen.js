@@ -1,6 +1,8 @@
 // Offscreen document: fetches audio from the local engine (Piper or Kokoro)
-// and plays it.
+// and plays it, one sentence at a time, so the popup and the player bar can
+// say "Sentence 3 of 6" and skip back or forward a sentence.
 // This runs in a real DOM context, unlike the service worker.
+import { splitSentences } from "./src/shared.js";
 
 let currentAudio = null;
 let currentBlobUrl = null;
@@ -15,11 +17,13 @@ let playGeneration = 0; // incremented on each new speak request; stale queues s
 let currentVolume = 1.0; // updated by speak-text and set-volume; used for per-chunk initial gain
 let currentRate = 1.0;   // updated by speak-text and set-rate; applied live + to later chunks
 let currentEngine = "piper"; // engine of the active speak-text request
+let jumpTo = null;           // sentence index a skip asked for, taken by playQueue
 
 const ENGINE_LABELS = { piper: "Piper", kokoro: "Kokoro" };
 const engineLabel = (engine) => ENGINE_LABELS[engine] || "TTS";
 
 function sendProgress(current, total, label = "") {
+  if (current > 0) currentIndex = current - 1;
   chrome.runtime.sendMessage({
     type: "playback-progress",
     engine: currentEngine,
@@ -28,33 +32,6 @@ function sendProgress(current, total, label = "") {
     percent: total > 0 ? current / total : null,
     label
   }).catch(() => {});
-}
-
-// ─── Chunk Splitter ───────────────────────────────────────────────────────────
-function splitIntoChunks(text, maxLength = 350, firstMaxLength = 140) {
-  // C3 fix: was \S+$ (matched only the final word); [^.!?]+$ captures the full
-  // trailing clause so unpunctuated text like "Hello world. No period here" keeps
-  // all trailing words instead of dropping everything but "here".
-  const sentences = text.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [text];
-
-  const chunks = [];
-  let current = "";
-
-  for (const sentence of sentences) {
-    // Cap the first chunk smaller so the first audio synthesizes - and starts
-    // playing - sooner; later chunks use the full length for fewer requests.
-    const cap = chunks.length === 0 ? firstMaxLength : maxLength;
-    const candidate = current ? current + " " + sentence : sentence;
-    if (candidate.length > cap) {
-      if (current.trim()) chunks.push(current.trim());
-      current = sentence;
-    } else {
-      current = candidate;
-    }
-  }
-
-  if (current.trim()) chunks.push(current.trim());
-  return chunks.length > 0 ? chunks : [text];
 }
 
 // ─── Fetch Audio from the local engine ────────────────────────────────────────
@@ -221,34 +198,35 @@ function stopAll() {
   stopCurrentAudio();
 }
 
-// ─── Sequential Queue Player ──────────────────────────────────────────────────
-// Architectural simplification: background.js now does a health-check pre-flight
-// and fires speak-text as fire-and-forget, so playQueue no longer needs to call
-// sendResponse. It simply plays chunks until done, stopped, or an error occurs.
+// ─── Sentence Queue Player ────────────────────────────────────────────────────
+// background.js checks the engine first and fires speak-text without waiting,
+// so playQueue just plays sentences until done, stopped, or an error occurs.
 // volume/rate are intentionally NOT parameters: playBlob reads the live module
-// values currentVolume/currentRate (set by speak-text and updated by the overlay
-// rocker) so adjustments carry across chunk boundaries. Passing them in would
-// invite a refactor that silently breaks live adjustment.
-async function playQueue(chunks, ttsUrl, voice, engine, generation) {
+// values currentVolume/currentRate (set by speak-text and updated by the
+// popup and the player bar) so adjustments carry across sentences.
+async function playQueue(sentences, ttsUrl, voice, engine, generation) {
   isPlaying = true;
-  playbackQueue = [...chunks];
-  const totalChunks = chunks.length;
+  playbackQueue = [...sentences];
+  const total = sentences.length;
   let failed = false;
-  sendProgress(0, totalChunks, "Starting");
+  sendProgress(0, total, "Starting");
 
   const live = () => isPlaying && playGeneration === generation;
 
-  // Pipeline: synthesize chunk i+1 while chunk i plays, so there's no gap
-  // between chunks and the rest is fetched while audio is already going. The
+  // Synthesize sentence i+1 while sentence i plays, so there's no gap. The
   // .then(ok, err) wrapper keeps a prefetched promise from rejecting unhandled.
-  const fetchChunk = (i) => fetchEngineAudio(chunks[i], ttsUrl, voice, engine)
-    .then((blob) => ({ blob }), (err) => ({ err }));
-  let pending = fetchChunk(0);
+  const fetched = new Map();
+  const fetchSentence = (i) => {
+    if (!fetched.has(i)) {
+      fetched.set(i, fetchEngineAudio(sentences[i], ttsUrl, voice, engine).then((blob) => ({ blob }), (err) => ({ err })));
+    }
+    return fetched.get(i);
+  };
 
   const reportError = (err) => {
     if (err && err.isStop === true) return; // intentional stop - exit silently
     if (live()) {
-      console.error("TTS chunk error:", err);
+      console.error("TTS sentence error:", err);
       failed = true;
       chrome.runtime.sendMessage({
         type: "playback-error",
@@ -258,34 +236,39 @@ async function playQueue(chunks, ttsUrl, voice, engine, generation) {
     }
   };
 
-  for (let i = 0; i < totalChunks && live(); i++) {
-    sendProgress(i + 1, totalChunks, `${i + 1}/${totalChunks}`);
-    const { blob, err } = await pending;
-    // Kick off the next synthesis immediately so it overlaps this chunk.
-    if (i + 1 < totalChunks) pending = fetchChunk(i + 1);
+  let i = 0;
+  while (i < total && live()) {
+    sendProgress(i + 1, total, `${i + 1}/${total}`);
+    const { blob, err } = await fetchSentence(i);
+    if (i + 1 < total) fetchSentence(i + 1);
+    // Keep memory flat on long reads: forget audio more than one sentence back.
+    fetched.delete(i - 2);
 
-    if (err) { reportError(err); break; }
     if (!live()) break;
+    if (jumpTo !== null) { i = jumpTo; jumpTo = null; continue; }
+    if (err) { reportError(err); break; }
 
-    // Between-chunk pause: wait until resume-audio clears the flag
+    // Paused between sentences: wait for resume-audio (or a skip).
     if (isPaused) {
       await new Promise(resolve => {
         const check = setInterval(() => {
-          if (!isPaused || !live()) { clearInterval(check); resolve(); }
+          if (!isPaused || !live() || jumpTo !== null) { clearInterval(check); resolve(); }
         }, 100);
       });
       if (!live()) break;
+      if (jumpTo !== null) { i = jumpTo; jumpTo = null; continue; }
     }
 
     try {
-      // Read the live module values so volume/speed changes from the overlay
-      // rocker carry across chunk boundaries.
       await playBlob(blob, currentVolume, currentRate);
     } catch (playErr) {
+      if (playErr.isSkip === true) { i = jumpTo ?? i; jumpTo = null; continue; }
       if (playErr.isStop === true) break; // intentional stop
       reportError(playErr);
       break;
     }
+    if (jumpTo !== null) { i = jumpTo; jumpTo = null; continue; }
+    i += 1;
   }
 
   // Only reset isPlaying if we're still the active generation
@@ -296,6 +279,29 @@ async function playQueue(chunks, ttsUrl, voice, engine, generation) {
       // Notify background so it can update the popup's now-playing indicator
       chrome.runtime.sendMessage({ type: "playback-ended" }).catch(() => {});
     }
+  }
+}
+
+// Skip to another sentence: delta -1 restarts the current sentence when it
+// has played for more than two seconds (as music players do), else goes back.
+let currentIndex = 0;
+function skipSentence(delta) {
+  if (!isPlaying || playbackQueue.length === 0) return;
+  const total = playbackQueue.length;
+  let target = currentIndex + delta;
+  if (delta < 0 && currentAudio && currentAudio.currentTime > 2) target = currentIndex;
+  target = Math.max(0, Math.min(total - 1, target));
+  jumpTo = target;
+  if (currentAudio) {
+    // Settle the playing sentence's promise as a skip, not a stop.
+    if (rejectCurrentPlay) {
+      const r = rejectCurrentPlay;
+      rejectCurrentPlay = null;
+      const skipErr = new Error("Skipped");
+      skipErr.isSkip = true;
+      r(skipErr);
+    }
+    stopCurrentAudio();
   }
 }
 
@@ -328,6 +334,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return;
   }
 
+  if (message.type === "skip-audio") {
+    skipSentence(message.delta < 0 ? -1 : 1);
+    return;
+  }
+
   if (message.type === "set-volume") {
     // Real-time gain adjustment from the overlay rocker
     currentVolume = Math.max(0, message.volume ?? 1.0);
@@ -354,12 +365,15 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     const gen = playGeneration;
     currentEngine = engine;
 
-    const chunks = splitIntoChunks(text);
+    jumpTo = null;
+    currentIndex = 0;
+    const sentences = splitSentences(text);
+    if (sentences.length === 0) sentences.push(text);
 
     // Fire-and-forget: background.js no longer awaits a response, so respond
     // immediately and let playback run independently. This eliminates the
     // long-lived message channel that Chrome was killing mid-flight.
-    playQueue(chunks, ttsUrl, voice, engine, gen).catch((err) => {
+    playQueue(sentences, ttsUrl, voice, engine, gen).catch((err) => {
       console.error("Queue playback error:", err);
     });
 

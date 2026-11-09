@@ -48,3 +48,20 @@ test('Piper voice names read as people say them', async () => {
   assert.deepEqual(describeLocale('fr-FR'), { language: 'French (France)', baseLanguage: 'French' });
   assert.deepEqual(describeLocale('en-GB'), { language: 'UK English', baseLanguage: 'English' });
 });
+
+test('text splits into sentences: short fragments join, long ones break at a comma', async () => {
+  const { splitSentences, sentenceLabel } = await import('../extension/src/shared.js');
+  assert.deepEqual(splitSentences('For most of history, reading was done out loud. Silent reading was rare!  Now   it is coming back?'),
+    ['For most of history, reading was done out loud.', 'Silent reading was rare!', 'Now it is coming back?']);
+  assert.deepEqual(splitSentences('Dr. Smith went home. He slept.'), ['Dr. Smith went home. He slept.']);
+  assert.deepEqual(splitSentences('No trailing period here'), ['No trailing period here']);
+  assert.deepEqual(splitSentences('"Quoted." Then a longer second sentence follows here.'), ['"Quoted." Then a longer second sentence follows here.']);
+  assert.deepEqual(splitSentences(''), []);
+  const long = `${'word '.repeat(50)}, ${'more '.repeat(60)}end.`;
+  const parts = splitSentences(long);
+  assert.ok(parts.length >= 2 && parts.every((p) => p.length <= 320), parts.map((p) => p.length).join());
+  assert.equal(parts.join(' ').replace(/\s+/g, ' '), long.replace(/\s+/g, ' ').trim());
+  assert.equal(sentenceLabel({ current: 3, total: 6 }), 'Sentence 3 of 6');
+  assert.equal(sentenceLabel({ current: 0, total: 6 }), 'Starting');
+  assert.equal(sentenceLabel({ current: 1, total: 1 }), 'One sentence');
+});

@@ -9,6 +9,8 @@
 //   3. Short hints ("Select text first", "Piper is offline...")
 //
 import { iconElement } from "./icons.js";
+import { engineLabel, sentenceLabel } from "./shared.js";
+import TOKENS_SOURCE from "../tokens.css";
 
 // The whole bundle is one function so it can be injected again (after an
 // extension update, say) without redeclaring anything; background.js pings the
@@ -140,7 +142,10 @@ import { iconElement } from "./icons.js";
   let overlayHost   = null;
   let overlayShadow = null;
 
-  const OVERLAY_CSS = `
+  // The design tokens (tokens.css) without its @font-face rules: inside a
+  // shadow root those would ask the host page's server for the font files.
+  const TOKENS_CSS = TOKENS_SOURCE.replace(/@font-face\s*{[^}]*}/g, "");
+  const OVERLAY_CSS = TOKENS_CSS + `
     :host {
       all: initial;
       position: fixed !important;
@@ -149,113 +154,70 @@ import { iconElement } from "./icons.js";
       z-index: 2147483647 !important;
       pointer-events: auto !important;
       display: block !important;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font: 400 13px/1.3 var(--f-ui);
+      color: var(--ink);
+      -webkit-font-smoothing: antialiased;
     }
+    * { box-sizing: border-box; }
 
-    /* ── Main playing bar ── */
+    /* ── The bar ── */
     .bar {
       display: flex;
       align-items: center;
       gap: 6px;
-      padding: 7px 10px 7px 12px;
-      background: #1e1e2e;
-      border: 1px solid #45475a;
-      border-radius: 999px;
-      box-shadow: 0 6px 28px rgba(0,0,0,0.7),
-                  0 0 0 1px rgba(203,166,247,0.08);
-      white-space: nowrap;
-      transition: border-color 0.2s;
+      width: 360px;
+      padding: 7px 6px 7px 8px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      box-shadow: var(--shadow-pop);
     }
-    .bar:hover { border-color: #6c7086; }
 
-    /* Extension label: the VoiceDock mark */
+    /* The VoiceDock mark on its ink tile */
     .brand {
-      display: flex;
-      color: #cba6f7;
-      flex-shrink: 0;
-      margin-right: 2px;
+      width: 26px; height: 26px; border-radius: 7px; flex: none;
+      display: grid; place-items: center;
+      background: var(--mark-ink); color: var(--mark-hi);
     }
     .btn svg, .brand svg { display: block; }
 
-    /* Status text */
-    .lbl {
-      font-size: 12px;
-      font-weight: 600;
-      letter-spacing: 0.02em;
-      color: #cdd6f4;
-      min-width: 46px;
-      text-align: left;
-      transition: color 0.15s;
-    }
-    .lbl.paused { color: #f9e2af; }
-
-    .prog {
-      width: 42px;
-      height: 4px;
-      background: #45475a;
-      border-radius: 999px;
-      overflow: hidden;
-      flex-shrink: 0;
-    }
-
-    .prog-fill {
-      display: block;
-      width: 0%;
-      height: 100%;
-      background: #cba6f7;
-      border-radius: inherit;
-      transition: width 0.2s ease;
-    }
-
-    .prog-fill.is-indeterminate {
-      width: 45%;
-      animation: tts-progress-pulse 1s ease-in-out infinite alternate;
-    }
-
-    @keyframes tts-progress-pulse {
-      from { transform: translateX(-70%); }
-      to   { transform: translateX(130%); }
-    }
-
-    /* Divider */
-    .sep {
-      width: 1px;
-      height: 14px;
-      background: #313244;
-      flex-shrink: 0;
-      margin: 0 2px;
-    }
-
-    /* Shared button base */
     .btn {
-      background: transparent;
-      border: none;
-      border-radius: 50%;
-      width: 26px; height: 26px;
+      background: transparent; border: none; padding: 0; cursor: pointer; flex: none;
+      width: 30px; height: 30px; border-radius: 8px;
       display: flex; align-items: center; justify-content: center;
-      cursor: pointer;
-      outline: none;
-      padding: 0;
-      flex-shrink: 0;
+      color: var(--muted);
       transition: background 0.15s, color 0.15s;
     }
+    .btn:hover { background: var(--surface-2); color: var(--ink); }
+    .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-    /* Play/Pause button */
-    .btn-pp {
-      color: #cba6f7;
-    }
-    .btn-pp:hover { background: rgba(203,166,247,0.12); }
+    /* Play / pause: the one filled control */
+    .btn-pp { width: 32px; height: 32px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); }
+    .btn-pp:hover { background: var(--accent-hover); color: var(--accent-ink); }
 
-    /* Speaker button (opens the hover rocker) */
-    .btn-vol {
-      color: #a6adc8;
-      width: 24px; height: 24px;
+    /* What is happening: "Reading sentence 2 of 6 · Kokoro", then a thin line */
+    .info { flex: 1; min-width: 0; display: grid; gap: 5px; padding: 0 6px 0 4px; }
+    .lbl {
+      display: flex; align-items: center; gap: 6px; min-width: 0;
+      font-size: 12px; font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums;
     }
-    .btn-vol:hover { background: rgba(166,173,200,0.14); color: #cdd6f4; }
+    .lbl-text { overflow: hidden; text-overflow: ellipsis; }
+    .meta { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .meta .prog { flex: 1; }
+    .lbl-engine { color: var(--muted); font-size: 11px; font-weight: 500; flex: none; white-space: nowrap; }
+    .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); flex: none; }
+    .dot.live { background: var(--accent); animation: vd-bar-pulse 1.6s ease-in-out infinite; }
+    @keyframes vd-bar-pulse { 0%, 100% { opacity: 0.35; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1.15); } }
+    .lbl.paused .lbl-text { color: var(--muted); }
+    @media (prefers-color-scheme: dark) { .brand { background: var(--surface-3); } }
+
+    .prog { height: 3px; background: var(--surface-3); border-radius: 999px; overflow: hidden; }
+    .prog-fill { display: block; width: 0%; height: 100%; background: var(--accent); border-radius: inherit; transition: width 0.3s ease; }
+    .prog-fill.is-indeterminate { width: 35%; animation: tts-progress-slide 1.1s ease-in-out infinite alternate; }
+    @keyframes tts-progress-slide { from { transform: translateX(-60%); } to { transform: translateX(240%); } }
 
     /* ── Volume + speed hover rocker ── */
     .vol-wrap { position: relative; display: flex; align-items: center; }
-
     .rocker {
       position: absolute;
       bottom: 100%;
@@ -267,98 +229,34 @@ import { iconElement } from "./icons.js";
     }
     .vol-wrap:hover .rocker,
     .rocker:hover { display: block; }
-
     .rocker-panel {
-      background: #1e1e2e;
-      border: 1px solid #45475a;
+      background: var(--surface);
+      border: 1px solid var(--line);
       border-radius: 12px;
-      box-shadow: 0 8px 28px rgba(0,0,0,0.7), 0 0 0 1px rgba(203,166,247,0.08);
+      box-shadow: var(--shadow-pop);
       padding: 10px 12px;
-      width: 184px;
+      width: 200px;
     }
-
-    .rocker-row {
-      display: grid;
-      grid-template-columns: 44px 1fr 40px;
-      align-items: center;
-      gap: 8px;
-    }
+    .rocker-row { display: grid; grid-template-columns: 48px 1fr 40px; align-items: center; gap: 8px; }
     .rocker-row + .rocker-row { margin-top: 9px; }
-
-    .rocker-lbl {
-      font-size: 11px;
-      font-weight: 700;
-      color: #a6adc8;
-      letter-spacing: 0.02em;
-    }
-
-    .rocker-val {
-      font-size: 11px;
-      font-weight: 700;
-      color: #cdd6f4;
-      text-align: right;
-      font-variant-numeric: tabular-nums;
-    }
-
-    .rocker-slider {
-      -webkit-appearance: none;
-      appearance: none;
-      width: 100%;
-      height: 4px;
-      border-radius: 999px;
-      background: #45475a;
-      outline: none;
-      cursor: pointer;
-      margin: 0;
-      padding: 0;
-    }
-    .rocker-slider::-webkit-slider-thumb {
-      -webkit-appearance: none;
-      appearance: none;
-      width: 13px; height: 13px;
-      border-radius: 50%;
-      background: #cba6f7;
-      border: none;
-      cursor: pointer;
-    }
-    .rocker-slider::-moz-range-thumb {
-      width: 13px; height: 13px;
-      border-radius: 50%;
-      background: #cba6f7;
-      border: none;
-      cursor: pointer;
-    }
-
-    .rocker-panel.is-disabled .rocker-slider { cursor: not-allowed; background: #313244; }
-    .rocker-panel.is-disabled .rocker-slider::-webkit-slider-thumb { background: #585b70; cursor: not-allowed; }
-    .rocker-panel.is-disabled .rocker-slider::-moz-range-thumb { background: #585b70; }
+    .rocker-lbl { font-size: 11px; font-weight: 500; color: var(--faint); }
+    .rocker-val { font-size: 12px; font-weight: 600; color: var(--ink); text-align: right; font-variant-numeric: tabular-nums; }
+    .rocker-slider { width: 100%; margin: 0; accent-color: var(--accent); cursor: pointer; }
+    .rocker-panel.is-disabled .rocker-slider { cursor: not-allowed; opacity: 0.45; }
     .rocker-panel.is-disabled .rocker-lbl,
-    .rocker-panel.is-disabled .rocker-val { color: #6c7086; }
-
-    .rocker-note {
-      display: none;
-      margin-top: 9px;
-      font-size: 10px;
-      line-height: 1.35;
-      color: #f9e2af;
-    }
-
-    /* Close / Stop button */
-    .btn-close {
-      color: #7f849c;
-    }
-    .btn-close:hover { background: rgba(243,139,168,0.14); color: #f38ba8; }
+    .rocker-panel.is-disabled .rocker-val { color: var(--faint); }
+    .rocker-note { display: none; margin-top: 9px; font-size: 11px; line-height: 1.35; color: var(--warn); }
 
     /* ── Hint toast ── */
     .hint-bar {
       padding: 8px 14px;
-      background: #1e1e2e;
-      border: 1px solid #45475a;
+      background: var(--surface);
+      border: 1px solid var(--line);
       border-radius: 999px;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.55);
+      box-shadow: var(--shadow-pop);
       font-size: 12px;
       font-weight: 600;
-      color: #a6adc8;
+      color: var(--ink);
       pointer-events: none;
       user-select: none;
       white-space: nowrap;
@@ -505,7 +403,10 @@ import { iconElement } from "./icons.js";
     vol.val.textContent = fmtVol(_currentVolume);
   }
 
-  function updateOverlay(isPlaying, isPaused, progress = null) {
+  let _lastProgress = null;
+
+  function updateOverlay(isPlaying, isPaused, progress = _lastProgress) {
+    _lastProgress = progress;
     if (!isPlaying && !isPaused) {
       if (overlayHost && !overlayShadow?.querySelector(".hint-bar")) removeOverlay();
       return;
@@ -516,7 +417,7 @@ import { iconElement } from "./icons.js";
 
     let bar = shadow.querySelector(".bar");
     if (!bar) {
-      // ── Brand icon ──
+      // ── The mark ──
       const brand = document.createElement("span");
       brand.className = "brand";
       brand.title = "VoiceDock";
@@ -532,33 +433,37 @@ import { iconElement } from "./icons.js";
         sendRuntimeMessage({ type: "keyboard-pause" });
       });
 
-      // ── Status label ──
-      const lbl = document.createElement("span");
+      // ── What is reading, and where: a line of text over a thin progress line ──
+      const info = document.createElement("div");
+      info.className = "info";
+      const lbl = document.createElement("div");
       lbl.className = "lbl";
-
-      const prog = document.createElement("span");
+      const dot = document.createElement("span");
+      dot.className = "dot";
+      const lblText = document.createElement("span");
+      lblText.className = "lbl-text";
+      const lblEngine = document.createElement("span");
+      lblEngine.className = "lbl-engine";
+      lbl.append(dot, lblText);
+      const prog = document.createElement("div");
       prog.className = "prog";
       const progFill = document.createElement("span");
       progFill.className = "prog-fill";
       prog.appendChild(progFill);
-
-      // ── Separator ──
-      const sep1 = document.createElement("span");
-      sep1.className = "sep";
+      const meta = document.createElement("div");
+      meta.className = "meta";
+      meta.append(prog, lblEngine);
+      info.append(lbl, meta);
 
       // ── Volume + speed rocker (hover the speaker icon) ──
       const volWrap = buildRocker();
-
-      // ── Separator ──
-      const sep2 = document.createElement("span");
-      sep2.className = "sep";
 
       // ── Stop button ──
       const btnClose = document.createElement("button");
       btnClose.className = "btn btn-close";
       btnClose.title = "Stop";
       btnClose.setAttribute("aria-label", "Stop");
-      btnClose.appendChild(icon("close", 14));
+      btnClose.appendChild(icon("close", 16));
       btnClose.addEventListener("click", () => {
         _localPlaying = false;
         _localPaused  = false;
@@ -568,40 +473,49 @@ import { iconElement } from "./icons.js";
 
       bar = document.createElement("div");
       bar.className = "bar";
-      bar.append(brand, btnPP, lbl, prog, sep1, volWrap, sep2, btnClose);
+      bar.setAttribute("role", "region");
+      bar.setAttribute("aria-label", "VoiceDock player");
+      bar.append(brand, btnPP, info, volWrap, btnClose);
       shadow.appendChild(bar);
     }
 
     const btnPP  = bar.querySelector(".btn-pp");
     const lbl    = bar.querySelector(".lbl");
+    const dot    = bar.querySelector(".dot");
+    const lblText = bar.querySelector(".lbl-text");
+    const lblEngine = bar.querySelector(".lbl-engine");
     const progFill = bar.querySelector(".prog-fill");
 
     // Reflect current engine + volume/speed onto the rocker
     syncRocker(bar.querySelector(".vol-wrap"));
 
-    if (progFill) {
-      if (progress?.total > 0) {
-        const percent = Math.max(0, Math.min(1, progress.percent ?? progress.current / progress.total));
-        progFill.classList.remove("is-indeterminate");
-        progFill.style.width = Math.round(percent * 100) + "%";
-      } else {
-        progFill.style.width = "";
-        progFill.classList.add("is-indeterminate");
-      }
+    if (progress?.total > 0) {
+      const percent = Math.max(0, Math.min(1, (progress.current || 0) / progress.total));
+      progFill.classList.remove("is-indeterminate");
+      progFill.style.width = Math.round(percent * 100) + "%";
+    } else {
+      progFill.style.width = "";
+      progFill.classList.add("is-indeterminate");
     }
 
+    const sentence = sentenceLabel(progress);
+    const started = (progress?.current || 0) > 0;
+    lblEngine.textContent = _currentEngine ? engineLabel(_currentEngine) : "";
     if (isPaused) {
       setIcon(btnPP, "play", 14);
-      btnPP.title       = "Resume";
+      btnPP.title = "Resume";
       btnPP.setAttribute("aria-label", "Resume");
-      lbl.textContent   = "Paused";
-      lbl.className     = "lbl paused";
+      lblText.textContent = started ? `Paused · ${sentence.toLowerCase()}` : "Paused";
+      lbl.className = "lbl paused";
+      dot.className = "dot";
     } else {
       setIcon(btnPP, "pause", 14);
-      btnPP.title       = "Pause";
+      btnPP.title = "Pause";
       btnPP.setAttribute("aria-label", "Pause");
-      lbl.textContent   = "Playing";
-      lbl.className     = "lbl";
+      lblText.textContent = started ? `Reading ${sentence.toLowerCase()}` : "Starting";
+      lbl.className = "lbl";
+      // The pulse means sound is coming out: only once a sentence plays.
+      dot.className = started ? "dot live" : "dot";
     }
   }
 

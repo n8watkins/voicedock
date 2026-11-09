@@ -74,6 +74,8 @@ npm install                    # installs deps and enables the git hooks
 npm ci --prefix servers/piper  # Piper server deps (its contract tests need them)
 npm run build                  # bundle extension/src into extension/dist
 npm test                       # extension + Piper server tests (node --test) and Kokoro server tests (python3 unittest)
+npm run test:e2e               # the built extension in Chromium against fake engines, with screenshot baselines (Playwright)
+npm run test:e2e:isolated      # the same, in a private network, beside real engines on 7477/7478
 npm run deploy                 # copy the built extension to the Windows folder Chrome loads
 ```
 
