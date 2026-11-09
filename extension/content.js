@@ -165,14 +165,14 @@
     }
     .bar:hover { border-color: #6c7086; }
 
-    /* Extension label */
+    /* Extension label: the VoiceDock mark */
     .brand {
-      font-size: 13px;
-      line-height: 1;
+      display: flex;
       color: #cba6f7;
       flex-shrink: 0;
       margin-right: 2px;
     }
+    .btn svg, .brand svg { display: block; }
 
     /* Status text */
     .lbl {
@@ -239,17 +239,14 @@
 
     /* Play/Pause button */
     .btn-pp {
-      font-size: 14px;
       color: #cba6f7;
     }
     .btn-pp:hover { background: rgba(203,166,247,0.12); }
 
     /* Speaker button (opens the hover rocker) */
     .btn-vol {
-      font-size: 14px;
       color: #a6adc8;
       width: 24px; height: 24px;
-      line-height: 1;
     }
     .btn-vol:hover { background: rgba(166,173,200,0.14); color: #cdd6f4; }
 
@@ -345,9 +342,7 @@
 
     /* Close / Stop button */
     .btn-close {
-      font-size: 10px;
-      color: #585b70;
-      font-weight: 700;
+      color: #7f849c;
     }
     .btn-close:hover { background: rgba(243,139,168,0.14); color: #f38ba8; }
 
@@ -408,6 +403,61 @@
     }, 2500);
   }
 
+  // Inline SVG icons (Lucide, plus the VoiceDock mark), so the bar looks the
+  // same on every system instead of depending on emoji fonts.
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  const ICONS = {
+    mark: { fill: true, view: "0 0 64 64", shapes: [
+      ["rect", { x: 14, y: 27, width: 5, height: 14, rx: 2.5 }],
+      ["rect", { x: 22.5, y: 18, width: 5, height: 23, rx: 2.5 }],
+      ["rect", { x: 31, y: 12, width: 5, height: 29, rx: 2.5 }],
+      ["rect", { x: 39.5, y: 21, width: 5, height: 20, rx: 2.5 }],
+      ["rect", { x: 48, y: 29, width: 5, height: 12, rx: 2.5, opacity: 0.85 }],
+      ["rect", { x: 10, y: 46, width: 44, height: 6, rx: 3, opacity: 0.55 }],
+    ] },
+    play: { fill: true, shapes: [["path", { d: "M7 4.5v15a1 1 0 0 0 1.5.86l12.5-7.5a1 1 0 0 0 0-1.72L8.5 3.64A1 1 0 0 0 7 4.5z" }]] },
+    pause: { fill: true, shapes: [
+      ["rect", { x: 6, y: 4, width: 4, height: 16, rx: 1 }],
+      ["rect", { x: 14, y: 4, width: 4, height: 16, rx: 1 }],
+    ] },
+    volume: { shapes: [
+      ["path", { d: "M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z" }],
+      ["path", { d: "M16 9a5 5 0 0 1 0 6" }],
+      ["path", { d: "M19.364 18.364a9 9 0 0 0 0-12.728" }],
+    ] },
+    close: { shapes: [["path", { d: "M18 6 6 18" }], ["path", { d: "m6 6 12 12" }]] },
+  };
+
+  function icon(name, size) {
+    const spec = ICONS[name];
+    const svg = document.createElementNS(SVG_NS, "svg");
+    svg.setAttribute("viewBox", spec.view || "0 0 24 24");
+    svg.setAttribute("width", String(size));
+    svg.setAttribute("height", String(size));
+    svg.setAttribute("aria-hidden", "true");
+    if (spec.fill) {
+      svg.setAttribute("fill", "currentColor");
+    } else {
+      svg.setAttribute("fill", "none");
+      svg.setAttribute("stroke", "currentColor");
+      svg.setAttribute("stroke-width", "2");
+      svg.setAttribute("stroke-linecap", "round");
+      svg.setAttribute("stroke-linejoin", "round");
+    }
+    for (const [tag, attrs] of spec.shapes) {
+      const el = document.createElementNS(SVG_NS, tag);
+      for (const [key, value] of Object.entries(attrs)) el.setAttribute(key, String(value));
+      svg.appendChild(el);
+    }
+    return svg;
+  }
+
+  function setIcon(button, name, size) {
+    if (button.dataset.icon === name) return;
+    button.dataset.icon = name;
+    button.replaceChildren(icon(name, size));
+  }
+
   function fmtVol(v) {
     return Math.round((v ?? 1.0) * 100) + "%";
   }
@@ -425,8 +475,9 @@
 
     const btn = document.createElement("button");
     btn.className = "btn btn-vol";
-    btn.textContent = "🔊";
+    btn.appendChild(icon("volume", 16));
     btn.title = "Volume & speed";
+    btn.setAttribute("aria-label", "Volume and speed");
 
     const rocker = document.createElement("div");
     rocker.className = "rocker";
@@ -510,7 +561,8 @@
       // ── Brand icon ──
       const brand = document.createElement("span");
       brand.className = "brand";
-      brand.textContent = "🔊";
+      brand.title = "VoiceDock";
+      brand.appendChild(icon("mark", 20));
 
       // ── Play/Pause button ──
       const btnPP = document.createElement("button");
@@ -547,7 +599,8 @@
       const btnClose = document.createElement("button");
       btnClose.className = "btn btn-close";
       btnClose.title = "Stop";
-      btnClose.textContent = "✕";
+      btnClose.setAttribute("aria-label", "Stop");
+      btnClose.appendChild(icon("close", 14));
       btnClose.addEventListener("click", () => {
         _localPlaying = false;
         _localPaused  = false;
@@ -580,13 +633,15 @@
     }
 
     if (isPaused) {
-      btnPP.textContent = "▶";
+      setIcon(btnPP, "play", 14);
       btnPP.title       = "Resume";
+      btnPP.setAttribute("aria-label", "Resume");
       lbl.textContent   = "Paused";
       lbl.className     = "lbl paused";
     } else {
-      btnPP.textContent = "⏸";
+      setIcon(btnPP, "pause", 14);
       btnPP.title       = "Pause";
+      btnPP.setAttribute("aria-label", "Pause");
       lbl.textContent   = "Playing";
       lbl.className     = "lbl";
     }
