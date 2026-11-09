@@ -1,0 +1,60 @@
+# The single-file hub (tools/build-hub.mjs): one executable per OS, so people
+# can run VoiceDock's local server without installing Node. Each runner
+# builds it, starts it, checks /health, /engines, the manifest it writes and
+# the signed engine catalog, and keeps the executable for 7 days.
+#
+# The time to first /health is printed, not enforced: shared runners vary too
+# much for a cold-start budget to be a fair failure (cold starts are measured
+# on the owner's PC instead).
+name: Hub binaries
+
+on:
+  pull_request:
+    paths:
+      - "servers/**"
+      - "tools/build-hub.mjs"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/hub-binaries.yml"
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            servers/piper/package-lock.json
+
+      - name: Install
+        run: |
+          npm ci
+          npm ci --prefix servers/piper
+
+      - name: Build and smoke-test the single-file hub
+        run: node tools/build-hub.mjs --smoke
+
+      - name: Keep the executable
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: voicedock-hub-${{ runner.os }}-${{ runner.arch }}
+          path: servers/piper/voicedock-hub*
+          retention-days: 7

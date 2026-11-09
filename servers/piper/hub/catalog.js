@@ -10,8 +10,9 @@
 const fs = require("fs");
 const path = require("path");
 const minisign = require("./minisign");
+const { SERVERS_DIR } = require("./paths");
 
-const CATALOG_DIR = path.resolve(__dirname, "..", "..", "catalog");
+const CATALOG_DIR = path.join(SERVERS_DIR, "catalog");
 
 // The catalog key, built in: a catalog file can't bring its own key.
 const PUBLIC_KEY = "untrusted comment: minisign public key E80F2A202F080226\nRWQmAggvICoP6J5loWwdHtKHW/oL8wbMBl4m1i/TCtcTVC3MD478jctm\n";

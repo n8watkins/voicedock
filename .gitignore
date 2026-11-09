@@ -56,3 +56,8 @@ playwright-report/
 
 # Engines installed from the signed catalog (node servers/piper/engines.js)
 servers/engines/
+
+# The single-file hub (node tools/build-hub.mjs) and its build folder
+servers/piper/voicedock-hub
+servers/piper/voicedock-hub.exe
+build/

@@ -691,12 +691,14 @@ async function start() {
   });
 }
 
-// Started directly (node server.js, the tray, n8piper): listen. Required by the
-// tests: export the app without listening.
-if (require.main === module) {
+// Started directly (node server.js, the tray, n8voice) or as the single-file
+// hub (hub-main.js): listen. Required by the tests: export the app without
+// listening.
+// Listens, and stops the engines this hub started when it stops. (Killed
+// outright, Kokoro notices its parent is gone and exits by itself, and the
+// next hub stops a Pocket TTS left behind.)
+function main() {
   start();
-  // Stop the Kokoro this server started with it. (Killed outright, Kokoro
-  // notices its parent is gone and exits within a few seconds by itself.)
   for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
     process.on(signal, () => stopServer(signal));
   }
@@ -706,4 +708,6 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, isAllowedOrigin };
+if (require.main === module) main();
+
+module.exports = { app, isAllowedOrigin, main };

@@ -139,6 +139,21 @@ The Unix launcher is POSIX-shell syntax checked in this repo. Runtime verificati
 
 ---
 
+## The single-file hub
+
+`npm run build:hub` (from the repo root) builds the hub as one executable for this OS, `servers/piper/voicedock-hub` (`.exe` on Windows), with Node and Express inside, so a computer without Node can run it.
+It bundles `hub-main.js` with esbuild, then makes a [Node single executable application](https://nodejs.org/api/single-executable-applications.html) with postject (about 110-125 MB), and starts it once to check `/health`, `/engines`, its manifest and the signed catalog.
+CI builds and checks it on Windows, macOS (Apple silicon) and Linux (x64 and arm64), and keeps each build for 7 days.
+
+```bash
+./voicedock-hub                    # the hub, as node server.js
+./voicedock-hub manifest install   # N8 Tray's manifest, running this executable
+./voicedock-hub engines catalog    # engines.js, without Node
+```
+
+It stays in `servers/piper`, beside `server.js`: it finds Piper, Kokoro, the catalog and installed engines from there.
+Downloads of these builds are not published yet: the executables are unsigned, and signing comes with N8 Tray's release work.
+
 ## Engines from the signed catalog
 
 `servers/catalog/engines.json` lists every download VoiceDock installs, each pinned by SHA-256, and `engines.json.minisig` signs it with the VoiceDock catalog key (minisign format; the public key is `servers/catalog/voicedock-catalog.pub` and is built into the hub).
