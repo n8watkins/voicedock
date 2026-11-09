@@ -105,6 +105,11 @@ It shows both VoiceDock engines in one menu:
 
 The tooltip reads like `VoiceDock | Piper 22 MB · Kokoro 47 MB (model unloaded)`.
 
+**Hosted by N8 Tray.** N8 Tray writes a lease file every 5 s listing the apps it shows in its own hub (`%LOCALAPPDATA%\N8Tray\run\host.json` on Windows).
+While that lease is fresh (heartbeat under 15 s old, host process alive) and lists `voicedock`, this tray shows no icon, starts no Piper server and records no memory history: N8 Tray runs VoiceDock then.
+When the lease goes stale (N8 Tray quit or crashed) the icon comes back within about 15 s and the tray starts Piper as usual; when N8 Tray returns, the icon goes away again and a Piper server this tray started keeps running for N8 Tray to adopt.
+At start, a stale lease that lists VoiceDock gets 30 s for its host to come up first, since both trays start at sign-in.
+
 Tray files:
 
 | What | Where |

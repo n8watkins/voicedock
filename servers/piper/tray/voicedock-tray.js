@@ -19,6 +19,14 @@
 // Had an older name (tray/piper-tray.js) up to VoiceDock 1.1; that tray's
 // startup entry is replaced by "VoiceDock Tray" on first run.
 //
+// Hosted by N8 Tray: while N8 Tray's lease (%LOCALAPPDATA%\N8Tray\run\host.json,
+// written every 5 s) is fresh and lists "voicedock", this tray shows no icon,
+// starts no Piper and records no memory: N8 Tray runs VoiceDock then. It
+// reads the lease every 5 s; when the lease goes stale (N8 Tray quit or
+// crashed) the icon comes back within about 15 s, and when N8 Tray returns it
+// goes away again (a Piper server this tray started keeps running, and N8
+// Tray adopts it). See tray-core.js, "Host lease".
+//
 // Robustness: async (non-blocking) health checks, a single-instance lockfile
 // with stale-lock recovery, graceful shutdown, and modest crash supervision.
 const SysTray = require('systray2').default;
@@ -33,7 +41,8 @@ const report = require('./memory-report');
 const TRAY_DIR = __dirname;
 const SERVER_DIR = path.dirname(TRAY_DIR); // .../servers/piper
 const ASSETS = path.join(TRAY_DIR, 'assets');
-const LOG_DIR = path.join(SERVER_DIR, 'logs');
+// VOICEDOCK_TRAY_LOG_DIR moves the logs, pid files and lock (the tests use it).
+const LOG_DIR = process.env.VOICEDOCK_TRAY_LOG_DIR || path.join(SERVER_DIR, 'logs');
 const PID_FILES = core.pidFiles(LOG_DIR); // current name, plus the 1.1 one for one release
 const LOCK_FILE = path.join(LOG_DIR, 'voicedock-tray.lock');
 const TRAY_LOG = path.join(LOG_DIR, 'voicedock-tray.log');
@@ -45,6 +54,9 @@ const isWin = process.platform === 'win32';
 const ICON_EXT = isWin ? 'ico' : 'png'; // Windows tray needs .ico; mac/linux use .png
 const MAX_RESTARTS = 3;
 const REFRESH_MS = 3000;
+const LEASE_CHECK_MS = 5000;
+const LEASE_FILE = core.hostLeasePath();
+const STARTED_AT = Date.now();
 
 fs.mkdirSync(LOG_DIR, { recursive: true });
 
@@ -166,7 +178,8 @@ async function startServerSafely() {
     while ((await portInUse()) && Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 600));
     }
-    startServer();
+    // Hosted meanwhile: the host runs Piper now.
+    if (systray) startServer();
   } finally {
     setTimeout(() => { starting = false; }, 1500); // let it bind before another attempt
   }
@@ -318,23 +331,27 @@ const menu = {
     loginItem, quitItem,
   ],
 };
-const systray = new SysTray({ menu, debug: false, copyDir: true });
-const pushItem = (item) => systray.sendAction({ type: 'update-item', item }).catch(() => {});
+// The icon exists only while the tray is not hosted; showTray and hideTray
+// create and remove it.
+let systray = null;
+const pushItem = (item) => { if (systray) systray.sendAction({ type: 'update-item', item }).catch(() => {}); };
 
 let intendedRunning = false; // the user (or auto-start) wants Piper up: gates crash supervision
 let restarts = 0;
 let lastKey = '';
 let lastStates = '';
 let refreshing = false;
+let refreshTimer = null;
 
 async function refresh() {
-  if (refreshing) return; // a slow check must not stack up passes
+  if (refreshing || !systray) return; // a slow check must not stack up passes
   refreshing = true;
   try {
     const [piper, kokoro] = await Promise.all([
       core.fetchHealth(HOST, PORT),
       core.fetchHealth(core.KOKORO_HOST, core.KOKORO_PORT),
     ]);
+    if (!systray) return; // hidden while the checks ran
     const online = !!piper;
     const managed = managedPid(piper) !== null;
     if (kokoro && !settings.kokoroSeen) updateSettings({ kokoroSeen: true });
@@ -369,7 +386,7 @@ async function refresh() {
   }
 }
 
-systray.onClick((action) => {
+function onMenuClick(action) {
   switch (action.item && action.item.title) {
     case T.start: intendedRunning = true; restarts = 0; startServerSafely(); setTimeout(refresh, 1200); break;
     case T.stop: intendedRunning = false; stopServer().finally(() => setTimeout(refresh, 800)); break;
@@ -395,37 +412,89 @@ systray.onClick((action) => {
     case T.quit: shutdown(); break;
     default: break;
   }
-});
+}
+
+// ─── Showing and hiding the icon (host lease) ────────────────────────────────
+let mode = 'starting'; // 'starting' | 'waiting' | 'hosted' | 'own'
+let settled = false; // hosted or shown at least once: no more start grace
+let firstShowDone = false;
+
+function showTray() {
+  if (systray) return;
+  lastKey = '';
+  const tray = new SysTray({ menu, debug: false, copyDir: true });
+  systray = tray;
+  tray.onClick(onMenuClick);
+  tray.ready().then(async () => {
+    if (systray !== tray) return; // hidden again before it was ready
+    log(`VoiceDock tray icon shown: pid ${process.pid}`);
+    if (!firstShowDone) {
+      firstShowDone = true;
+      migrateLegacyAutostart();
+      // Self-install launch at login on the very first run only; afterwards the
+      // toggle is the user's choice and is never undone at start.
+      if (!settings.autostartChosen) {
+        if (!isAutostartInstalled()) { installAutostart(); autostartJustInstalled = true; }
+        updateSettings({ autostartChosen: true });
+      }
+    }
+    loginItem.checked = autostartJustInstalled || isAutostartInstalled();
+    pushItem(loginItem);
+    const health = await core.fetchHealth(HOST, PORT);
+    if (systray !== tray) return;
+    if (!health) { intendedRunning = true; restarts = 0; startServerSafely(); } // auto-start if offline
+    else { intendedRunning = managedPid(health) !== null; }
+    applyHistorySetting();
+    await refresh();
+    clearInterval(refreshTimer);
+    refreshTimer = setInterval(refresh, REFRESH_MS);
+  }).catch((err) => {
+    console.error('VoiceDock tray failed to start:', (err && err.message) || err);
+    log(`Failed to start: ${(err && err.message) || err}`);
+    releaseLock();
+    process.exit(1);
+  });
+}
+
+// Removes the icon and stops supervising Piper and recording memory: the host
+// does both now. A Piper server this tray started keeps running (stopping it
+// could cut off a reading); the host adopts it.
+function hideTray() {
+  clearInterval(refreshTimer);
+  refreshTimer = null;
+  clearInterval(sampler.timer);
+  sampler.timer = null;
+  intendedRunning = false;
+  restarts = 0;
+  const tray = systray;
+  systray = null;
+  if (tray) tray.kill(false).catch(() => {});
+}
+
+function checkLease() {
+  const lease = core.readHostLease(LEASE_FILE);
+  const next = core.trayMode({ lease, isAlive, startedAt: STARTED_AT, settled });
+  if (next === 'hosted' || next === 'own') settled = true;
+  if (next === mode) return;
+  const host = lease && lease.host ? `${lease.host} (pid ${lease.pid})` : 'the host tray';
+  if (next === 'hosted') log(`Hosted by ${host}: no icon; it runs VoiceDock`);
+  else if (next === 'waiting') log(`${host} lists VoiceDock but its lease is stale; waiting up to ${core.LEASE_START_GRACE_MS / 1000} s for it to start`);
+  else if (mode === 'hosted') log(`The lease from ${host} went stale: showing the icon again`);
+  else if (mode === 'waiting') log(`${host} did not come up: showing the icon`);
+  mode = next;
+  if (next === 'own') showTray(); else hideTray();
+}
 
 function shutdown() {
   clearInterval(sampler.timer);
   releaseLock();
+  if (!systray) process.exit(0);
   try { systray.kill(true); } catch { process.exit(0); }
 }
 process.on('exit', releaseLock);
 process.on('SIGINT', () => { shutdown(); });
 process.on('SIGTERM', () => { shutdown(); });
 
-systray.ready().then(async () => {
-  log(`VoiceDock tray started: pid ${process.pid}`);
-  migrateLegacyAutostart();
-  // Self-install launch at login on the very first run only; afterwards the
-  // toggle is the user's choice and is never undone at start.
-  if (!settings.autostartChosen) {
-    if (!isAutostartInstalled()) { installAutostart(); autostartJustInstalled = true; }
-    updateSettings({ autostartChosen: true });
-  }
-  loginItem.checked = autostartJustInstalled || isAutostartInstalled();
-  pushItem(loginItem);
-  const health = await core.fetchHealth(HOST, PORT);
-  if (!health) { intendedRunning = true; startServerSafely(); } // auto-start if offline
-  else { intendedRunning = managedPid(health) !== null; }
-  applyHistorySetting();
-  await refresh();
-  setInterval(refresh, REFRESH_MS);
-}).catch((err) => {
-  console.error('VoiceDock tray failed to start:', (err && err.message) || err);
-  log(`Failed to start: ${(err && err.message) || err}`);
-  releaseLock();
-  process.exit(1);
-});
+log(`VoiceDock tray started: pid ${process.pid}${LEASE_FILE ? `, host lease ${LEASE_FILE}` : ''}`);
+checkLease();
+setInterval(checkLease, LEASE_CHECK_MS);
