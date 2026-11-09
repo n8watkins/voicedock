@@ -54,7 +54,7 @@ test('popup: picking, searching, filtering and starring voices', async ({ openPo
   const picker = page.getByRole('dialog', { name: 'Choose a voice' });
 
   await picker.getByRole('searchbox', { name: 'Search voices' }).fill('cori');
-  await expect(picker.getByRole('option')).toHaveCount(1);
+  await expect(picker.locator('.vrow .nm')).toHaveText(['Cori']);
   await picker.getByRole('searchbox', { name: 'Search voices' }).fill('');
 
   await picker.getByRole('combobox', { name: 'Language' }).selectOption('Spanish');
