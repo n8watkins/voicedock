@@ -5,7 +5,8 @@
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 
-const calls = { runtime: [], tts: [], hints: [], injected: [], tabMessages: [], created: [] };
+const calls = { runtime: [], tts: [], hints: [], notes: [], injected: [], tabMessages: [], created: [] };
+const ttsVoices = { list: null }; // null: the default list below
 // Tabs as the page script sees them: which have the page script running, which
 // Chrome lets the extension script (activeTab granted), and their selection.
 const pages = { scripted: new Set(), scriptable: new Set([7, 42]), selection: { 42: 'Hello there' } };
@@ -39,9 +40,9 @@ globalThis.chrome = {
   commands: { onCommand: event('commands.onCommand') },
   tts: {
     stop() {}, pause() {}, resume() {},
-    speak(text, opts) { calls.tts.push({ text, opts }); },
+    speak(text, opts) { calls.tts.push({ text, opts }); if (ttsVoices.failNext) { ttsVoices.failNext = false; opts.onEvent?.({ type: 'error', errorMessage: 'No audio device.' }); } },
     // An online Google voice listed first, then on-device voices.
-    getVoices: async () => [
+    getVoices: async () => ttsVoices.list ?? [
       { voiceName: 'Google US English', lang: 'en-US', remote: true },
       { voiceName: 'Microsoft Zira', lang: 'en-US', remote: false },
       { voiceName: 'Microsoft Hedda', lang: 'de-DE', remote: false },
@@ -57,6 +58,7 @@ globalThis.chrome = {
       if (msg.type === 'ping') return { ok: true };
       if (msg.type === 'get-selection') return { text: pages.selection[tabId] || '' };
       if (msg.type === 'show-hint') calls.hints.push({ tabId, message: msg.message });
+      if (msg.type === 'show-note') calls.notes.push({ tabId, note: msg.note });
       return undefined;
     },
   },
@@ -116,6 +118,9 @@ beforeEach(async () => {
   calls.runtime.length = 0;
   calls.tts.length = 0;
   calls.hints.length = 0;
+  calls.notes.length = 0;
+  ttsVoices.list = null;
+  ttsVoices.failNext = false;
   calls.injected.length = 0;
   calls.tabMessages.length = 0;
   pages.scripted.clear();
@@ -158,14 +163,16 @@ test('with the hub not running, Kokoro falls back to the Basic voice and the pag
   assert.equal(speakTextMessages().length, 0, 'nothing is sent to the hub');
   assert.equal(calls.tts.length, 1);
   assert.equal(calls.tts[0].text, 'Hello there');
-  assert.deepEqual(calls.hints, [{ tabId: 42, message: 'Kokoro is not running. Reading with the Basic voice.' }]);
+  const lastNote = () => calls.notes.filter((n) => n.note).at(-1)?.note;
+  assert.deepEqual(lastNote(), { tone: 'warn', text: 'Kokoro is not running. Reading with the Basic voice.', fix: { label: 'How to start', engine: 'kokoro' } });
+  assert.deepEqual(calls.notes[0], { tabId: 42, note: null }, 'a new read clears the last note first');
 
   delete store.engineSeen;
   await stop();
-  calls.hints.length = 0;
+  calls.notes.length = 0;
   onCommand('read-selection', { id: 42 });
   await settle();
-  assert.deepEqual(calls.hints, [{ tabId: 42, message: 'Kokoro is not set up. Reading with the Basic voice.' }], 'never set up here');
+  assert.deepEqual(lastNote(), { tone: 'warn', text: 'Kokoro is not set up. Reading with the Basic voice.', fix: { label: 'Set up Kokoro', engine: 'kokoro' } }, 'never set up here');
 });
 
 test('a Kokoro on standby reads through the hub, which starts it; the page says how long', async () => {
@@ -194,7 +201,8 @@ test('a Kokoro that is not set up leads to the Basic voice', async () => {
   await settle();
   assert.equal(speakTextMessages().length, 0);
   assert.equal(calls.tts.length, 1);
-  assert.equal(calls.hints.at(-1).message, 'Kokoro is not set up. Reading with the Basic voice.');
+  assert.equal(calls.notes.at(-1).note.text, 'Kokoro is not set up. Reading with the Basic voice.');
+  assert.equal(calls.notes.at(-1).note.fix.label, 'Set up Kokoro');
 });
 
 test('warm-engine asks the hub to start Kokoro without reading, and checks in', async () => {
@@ -321,4 +329,76 @@ test('install runs the settings migration', async () => {
   assert.deepEqual(store.favoritesByEngine, { piper: ['en_US-amy-medium.onnx'], kokoro: [] });
   assert.equal(store.fallback, true);
   assert.equal('favorites' in store, false);
+});
+
+// ─── Notes on the page (the player bar's error states) ──────────────────────
+async function readKokoroFromTab() {
+  store.profiles = [{ id: 'k', name: 'K', engine: 'kokoro', voice: 'af_heart', rate: 1, volume: 1 }];
+  store.activeId = 'k';
+  pages.selection[42] = 'First sentence is here. Second sentence is here. Third sentence is here.';
+  onCommand('read-selection', { id: 42 });
+  await settle();
+}
+
+test('Kokoro stops mid-read: the Basic voice reads on from that sentence, and the note says so', async () => {
+  await readKokoroFromTab();
+  assert.equal(speakTextMessages().length, 1);
+  await send({ type: 'playback-error', engine: 'kokoro', reason: 'failed', index: 1, error: 'Kokoro did not answer.' });
+  await settle();
+  assert.deepEqual(calls.tts.map((t) => t.text), ['Second sentence is here.'], 'on from sentence 2, not from the top');
+  assert.deepEqual(calls.notes.at(-1), { tabId: 42, note: { tone: 'warn', text: 'Kokoro stopped. Reading on with the Basic voice.', fix: { label: 'How to start', engine: 'kokoro' } } });
+  pages.selection[42] = 'Hello there';
+});
+
+test('low memory mid-read says why and offers no fix to chase', async () => {
+  await readKokoroFromTab();
+  await send({ type: 'playback-error', engine: 'kokoro', reason: 'low-memory', index: 2, error: 'Memory is low.' });
+  await settle();
+  assert.deepEqual(calls.notes.at(-1).note, { tone: 'warn', text: 'Memory is low, so Kokoro stopped. Reading on with the Basic voice.', fix: null });
+  pages.selection[42] = 'Hello there';
+});
+
+test('with the fallback off, a failed engine leaves a red note and nothing reads', async () => {
+  store.fallback = false;
+  await readKokoroFromTab();
+  await send({ type: 'playback-error', engine: 'kokoro', reason: 'failed', index: 1, error: 'x' });
+  await settle();
+  assert.equal(calls.tts.length, 0);
+  assert.deepEqual(calls.notes.at(-1).note, { tone: 'err', text: 'Kokoro stopped while reading, and the Basic voice fallback is off.', fix: { label: 'How to start', engine: 'kokoro' } });
+
+  hub.kokoro = 'not-installed';
+  await stop();
+  onCommand('read-selection', { id: 42 });
+  await settle();
+  assert.deepEqual(calls.notes.at(-1).note, { tone: 'err', text: 'Kokoro is not set up, and the Basic voice fallback is off.', fix: { label: 'Set up Kokoro', engine: 'kokoro' } });
+  pages.selection[42] = 'Hello there';
+});
+
+test('a chrome.tts error always leaves a note', async () => {
+  store.profiles = [{ id: 'b', name: 'B', engine: 'browser', voice: '', rate: 1, volume: 1 }];
+  store.activeId = 'b';
+  ttsVoices.failNext = true;
+  onCommand('read-selection', { id: 42 });
+  await settle();
+  assert.deepEqual(calls.notes.at(-1).note, { tone: 'err', text: 'The Basic voice could not read this: No audio device.', fix: null });
+});
+
+test('no system voice and no engine: nothing to read with, and the note offers Piper', async () => {
+  hub.up = false;
+  ttsVoices.list = [];
+  store.profiles = [{ id: 'k', name: 'K', engine: 'kokoro', voice: 'af_heart', rate: 1, volume: 1 }];
+  store.activeId = 'k';
+  onCommand('read-selection', { id: 42 });
+  await settle();
+  assert.equal(calls.tts.length, 0);
+  assert.deepEqual(calls.notes.at(-1).note, { tone: 'err', text: 'Nothing to read with. This computer has no built-in voice, and no engine is ready.', fix: { label: 'Set up Piper', engine: 'piper' } });
+  const state = await send({ type: 'get-playback-state' }, { tab: { id: 42 } });
+  assert.equal(state.isPlaying, false, 'not stuck "playing" silence');
+});
+
+test("a note's fix opens that engine's guided setup", async () => {
+  calls.created.length = 0;
+  await send({ type: 'open-setup', engine: 'kokoro' });
+  await send({ type: 'open-setup', engine: '../evil' });
+  assert.deepEqual(calls.created, ['chrome-extension://test/options.html#engines:kokoro', 'chrome-extension://test/options.html#engines']);
 });
