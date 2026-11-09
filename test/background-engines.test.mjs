@@ -72,7 +72,16 @@ globalThis.chrome = {
   offscreen: { createDocument: async () => {} },
 };
 
-globalThis.fetch = async (url) => {
+// The Piper server can start Kokoro on demand when hub.canStart is set.
+const hub = { canStart: false, starts: 0 };
+globalThis.fetch = async (url, init = {}) => {
+  if (url === 'http://127.0.0.1:7477/engines/kokoro/start' && init.method === 'POST') {
+    if (!online['http://127.0.0.1:7477']) throw new TypeError('fetch failed');
+    if (!hub.canStart) return { ok: false, status: 404, json: async () => ({ error: 'Not found.' }) };
+    hub.starts += 1;
+    online['http://127.0.0.1:7478'] = true;
+    return { ok: true, json: async () => ({ ok: true, state: 'ready' }) };
+  }
   const base = url.replace(/\/health$/, '');
   if (!online[base]) throw new TypeError('fetch failed');
   return { ok: true, json: async () => ({ status: 'ok' }) };
@@ -105,6 +114,8 @@ beforeEach(async () => {
   pages.scripted.clear();
   online['http://127.0.0.1:7477'] = true;
   online['http://127.0.0.1:7478'] = true;
+  hub.canStart = false;
+  hub.starts = 0;
   store.fallback = true;
 });
 
@@ -131,6 +142,7 @@ test('a Piper profile (old voice-only shape) is sent to the Piper server', async
 
 test('an offline engine falls back to the browser voice and tells the page', async () => {
   online['http://127.0.0.1:7478'] = false;
+  online['http://127.0.0.1:7477'] = false; // no Piper server, so nothing can start Kokoro
   // The shortcut reads with the active profile; make it a Kokoro one.
   store.profiles = [{ id: 'k', name: 'K', engine: 'kokoro', voice: 'af_heart', rate: 1, volume: 1 }];
   store.activeId = 'k';
@@ -140,6 +152,40 @@ test('an offline engine falls back to the browser voice and tells the page', asy
   assert.equal(calls.tts.length, 1);
   assert.equal(calls.tts[0].text, 'Hello there');
   assert.deepEqual(calls.hints, [{ tabId: 42, message: 'Kokoro is offline. Reading with the Basic voice.' }]);
+});
+
+test('a stopped Kokoro is started on demand by the Piper server, then reads', async () => {
+  online['http://127.0.0.1:7478'] = false;
+  hub.canStart = true;
+  store.profiles = [{ id: 'k', name: 'K', engine: 'kokoro', voice: 'af_heart', rate: 1, volume: 1 }];
+  store.activeId = 'k';
+  onCommand('read-selection', { id: 42 });
+  await settle();
+  assert.equal(hub.starts, 1);
+  const [msg] = speakTextMessages();
+  assert.equal(msg.ttsUrl, 'http://127.0.0.1:7478/tts');
+  assert.equal(calls.tts.length, 0, 'the Basic voice did not read');
+  assert.deepEqual(calls.hints, [{ tabId: 42, message: 'Starting Kokoro, about 5 s' }]);
+});
+
+test('a Piper server that cannot start Kokoro leads to the Basic voice', async () => {
+  online['http://127.0.0.1:7478'] = false;
+  store.profiles = [{ id: 'k', name: 'K', engine: 'kokoro', voice: 'af_heart', rate: 1, volume: 1 }];
+  store.activeId = 'k';
+  onCommand('read-selection', { id: 42 });
+  await settle();
+  assert.equal(speakTextMessages().length, 0);
+  assert.equal(calls.tts.length, 1);
+  assert.equal(calls.hints.at(-1).message, 'Kokoro is offline. Reading with the Basic voice.');
+});
+
+test('warm-engine starts Kokoro without reading', async () => {
+  online['http://127.0.0.1:7478'] = false;
+  hub.canStart = true;
+  for (const fn of listeners['runtime.onMessage']) fn({ type: 'warm-engine', engine: 'kokoro' }, {}, () => {});
+  await settle();
+  assert.equal(hub.starts, 1);
+  assert.equal(speakTextMessages().length, 0);
 });
 
 test('the shortcut adds the page script to the tab it was pressed on, then reads its selection', async () => {

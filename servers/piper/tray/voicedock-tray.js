@@ -4,10 +4,11 @@
 // - Piper (this folder's server.js, port 7477): status, memory, and
 //   Start / Stop / Restart. The tray starts Piper when it is offline and only
 //   ever stops the server it started; one started elsewhere shows as external.
-// - Kokoro (servers/kokoro, port 7478, usually in WSL): status and memory from
-//   its /health only. The tray never starts or stops Kokoro, because that
-//   would mean calling wsl.exe, which boots the WSL VM. Kokoro is optional and
-//   shows as "Not installed (optional)" until it has answered once.
+// - Kokoro (servers/kokoro, port 7478): status and memory from its /health.
+//   The Piper server this tray runs starts Kokoro on the first Kokoro read
+//   and stops it after 30 idle minutes (servers/piper/kokoro.js), so the tray
+//   needs no Kokoro controls. Kokoro is optional and shows as "Not installed
+//   (optional)" until it has answered once.
 //
 // Memory: each engine's /health reports its own memory, shown in the menu and
 // tooltip. "Record memory history" (off by default) samples it once a minute
@@ -311,7 +312,7 @@ const T = {
 const sep = () => Object.assign({}, SysTray.separator);
 const titleItem = { title: 'VoiceDock', tooltip: '', enabled: false };
 const piperItem = { title: 'Piper: checking…', tooltip: 'Piper engine (port 7477)', enabled: false };
-const kokoroItem = { title: 'Kokoro: checking…', tooltip: 'Kokoro engine (port 7478, optional, runs in WSL or Linux)', enabled: false };
+const kokoroItem = { title: 'Kokoro: checking…', tooltip: 'Kokoro engine (port 7478, optional, starts when you read with it)', enabled: false };
 const startItem = { title: T.start, tooltip: 'Start the local Piper server', enabled: true };
 const stopItem = { title: T.stop, tooltip: 'Stop the Piper server this tray started', enabled: false };
 const restartItem = { title: T.restart, tooltip: 'Stop and start the Piper server', enabled: false };

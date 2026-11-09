@@ -7,6 +7,10 @@
  *                                   listen: "127.0.0.1:7477", exposed: false }
  * GET  /voices                  → { engine, voices, defaultVoice, sizes, voiceDir }
  * POST /tts  { "text": "..." }  → audio/wav
+ * GET  /engines                 → { engines: [piper, kokoro] } with each state
+ * POST /engines/kokoro/start    → starts Kokoro on demand (see kokoro.js)
+ * POST /engines/kokoro/stop     → stops the Kokoro this server started
+ * GET  /engines/kokoro/voices   → Kokoro's voices, without starting it
  *
  * Requires:
  *   piper/piper.exe on Windows, or piper/piper on macOS/Linux
@@ -23,6 +27,7 @@ const crypto  = require("crypto");
 const { spawn } = require("child_process");
 const { version } = require("./package.json");
 const { serverRssMb, createReaderTracker } = require("./memory");
+const { createKokoroLauncher } = require("./kokoro");
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 const { PORT, HOST, isLoopbackHost, exposureWarning } = require("./config"); // shared with the tray so they agree
@@ -113,6 +118,50 @@ app.get("/health", (req, res) => {
     ...memory,
     ...listenInfo(req),
   });
+});
+
+// ─── Engines: Kokoro on demand (kokoro.js) ───────────────────────────────────
+// app.locals.kokoro so tests can swap in a fake launcher.
+app.locals.kokoro = createKokoroLauncher();
+
+app.get("/engines", async (_req, res) => {
+  const voices = await installedVoices();
+  const piper = {
+    id: "piper",
+    state: voices.length ? "ready" : "not-installed",
+    voices: voices.length,
+    speaking: readers.snapshot().speaking,
+  };
+  res.json({ engines: [piper, await app.locals.kokoro.status()] });
+});
+
+app.post("/engines/kokoro/start", async (_req, res) => {
+  try {
+    const result = await app.locals.kokoro.start();
+    res.json({ ok: true, state: result.state, owned: result.owned, startedMs: result.startedMs });
+  } catch (err) {
+    const notInstalled = err.code === "not-installed";
+    res.status(notInstalled ? 409 : 503).json({
+      error: notInstalled ? "Kokoro is not set up." : "Kokoro did not start.",
+      reason: notInstalled ? "not-installed" : "failed",
+      details: err.message,
+    });
+  }
+});
+
+// Kokoro's voices without starting it (read from its voices file).
+app.get("/engines/kokoro/voices", (_req, res) => {
+  try {
+    const list = app.locals.kokoro.voices();
+    if (!list) return res.status(404).json({ error: "Kokoro is not set up." });
+    res.json(list);
+  } catch (err) {
+    res.status(500).json({ error: "Could not read Kokoro's voices.", details: err.message });
+  }
+});
+
+app.post("/engines/kokoro/stop", (_req, res) => {
+  res.json({ ok: true, stopped: app.locals.kokoro.stop() });
 });
 
 // ─── Validation Helpers ───────────────────────────────────────────────────────
@@ -236,6 +285,10 @@ app.post("/tts", async (req, res) => {
   if (voiceError) {
     return res.status(400).json({ error: voiceError });
   }
+
+  // Only the engine in use runs: a Piper read stops an idle Kokoro this
+  // server started. Not awaited, so the read never waits on it.
+  app.locals.kokoro.yieldTo("piper").catch(() => {});
 
   const cleanText  = text.trim();
   const id         = crypto.randomUUID();
@@ -419,6 +472,15 @@ async function start() {
 // tests: export the app without listening.
 if (require.main === module) {
   start();
+  // Stop the Kokoro this server started with it. (Killed outright, Kokoro
+  // notices its parent is gone and exits within a few seconds by itself.)
+  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+    process.on(signal, () => {
+      app.locals.kokoro.stop();
+      process.exit(0);
+    });
+  }
+  process.on("exit", () => app.locals.kokoro.stop());
 }
 
 module.exports = { app, isAllowedOrigin };

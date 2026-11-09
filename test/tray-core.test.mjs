@@ -22,12 +22,12 @@ test('Piper status shows memory, external servers and reading', () => {
   assert.equal(core.piperStatusText(null, false), 'Piper: Stopped');
 });
 
-test('Kokoro status is running, not installed or not reachable, never a WSL call', () => {
+test('Kokoro status is running, not installed or not running (starts on demand)', () => {
   assert.equal(core.kokoroStatusText(KOKORO, true), 'Kokoro: Running · 47 MB (model unloaded)');
   assert.equal(core.kokoroStatusText({ ...KOKORO, rssMb: 581.2, modelLoaded: true }, true), 'Kokoro: Running · 581 MB (model loaded)');
   assert.equal(core.kokoroStatusText({ status: 'ok' }, true), 'Kokoro: Running');
   assert.equal(core.kokoroStatusText(null, false), 'Kokoro: Not installed (optional)');
-  assert.equal(core.kokoroStatusText(null, true), 'Kokoro: Not reachable');
+  assert.equal(core.kokoroStatusText(null, true), 'Kokoro: Not running (starts when you read)');
 });
 
 test('a Piper server is only ours while our child runs or /health reports the recorded pid', () => {
@@ -42,7 +42,7 @@ test('a Piper server is only ours while our child runs or /health reports the re
 test('the tooltip names both engines and stays within the Windows limit', () => {
   assert.equal(core.tooltipText(PIPER, KOKORO, true), 'VoiceDock | Piper 22 MB · Kokoro 47 MB (model unloaded)');
   assert.equal(core.tooltipText(null, null, false), 'VoiceDock | Piper stopped');
-  assert.equal(core.tooltipText(PIPER, null, true), 'VoiceDock | Piper 22 MB · Kokoro not reachable');
+  assert.equal(core.tooltipText(PIPER, null, true), 'VoiceDock | Piper 22 MB · Kokoro off until a read');
   const long = core.tooltipText({ ...PIPER, totalRssMb: 1e12, speaking: true, activeVoice: 'x'.repeat(200) }, KOKORO, true);
   assert.ok(long.length <= 127);
 });

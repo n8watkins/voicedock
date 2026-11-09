@@ -10,6 +10,7 @@ import {
   engineLabel,
   markEngineSeen,
   normalizeProfile,
+  PIPER_BASE_URL,
   pickDeviceVoice,
   runSettingsMigration,
   splitSentences,
@@ -291,6 +292,41 @@ async function rememberEngineSeen(engine) {
   } catch (_) {}
 }
 
+// ─── Kokoro on demand ────────────────────────────────────────────────────────
+// Kokoro doesn't run all the time: the Piper server starts it on the first
+// read (POST /engines/kokoro/start, see servers/piper/kokoro.js) and it stops
+// itself after 30 idle minutes. Resolves true once Kokoro answers. Concurrent
+// callers share one start.
+const KOKORO_START_TIMEOUT_MS = 30_000;
+let _kokoroStart = null;
+let _engineStarting = null; // "kokoro" while it starts, for the popup and player bar
+
+function startEngineOnDemand(engine) {
+  if (engine !== "kokoro") return Promise.resolve(false);
+  if (_kokoroStart) return _kokoroStart;
+  _kokoroStart = (async () => {
+    _engineStarting = engine;
+    notifyPlaybackState();
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), KOKORO_START_TIMEOUT_MS);
+    try {
+      const res = await fetch(`${PIPER_BASE_URL}/engines/kokoro/start`, { method: "POST", signal: ctrl.signal });
+      if (!res.ok) return false;
+      _engineOnlineCache.kokoro = { value: true, expiresAt: Date.now() + 5000 };
+      rememberEngineSeen("kokoro");
+      return true;
+    } catch (_) {
+      return false; // Piper is down or too old to start Kokoro
+    } finally {
+      clearTimeout(timer);
+      _engineStarting = null;
+      _kokoroStart = null;
+      notifyPlaybackState();
+    }
+  })();
+  return _kokoroStart;
+}
+
 function invalidateEngineCache() {
   for (const id of LOCAL_ENGINE_IDS) _engineOnlineCache[id].expiresAt = 0;
 }
@@ -317,6 +353,7 @@ function playbackStateForTab(tabId) {
     volume:    _currentVolume,
     rate:      _currentRate,
     engine:    _playbackEngine,
+    starting:  _engineStarting,
     progress:  _playbackProgress
   };
 }
@@ -473,7 +510,13 @@ async function speakText(text, profile, tabId = null) {
 
   let online = {};
   if (settings.engine !== "browser") {
-    online = { [settings.engine]: await checkEngineOnline(settings.engine) };
+    let up = await checkEngineOnline(settings.engine);
+    // The Piper server starts Kokoro on demand (when Piper itself runs).
+    if (!up && settings.engine === "kokoro" && await checkEngineOnline("piper")) {
+      if (tabId != null) showTabHint({ id: tabId }, "Starting Kokoro, about 5 s");
+      up = await startEngineOnDemand("kokoro");
+    }
+    online = { [settings.engine]: up };
   }
   let choice = chooseEngine(settings, online, fallback);
 
@@ -631,6 +674,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     return;
   }
+  // Popup opened on a Kokoro profile: start Kokoro now, so the read that
+  // usually follows doesn't wait.
+  if (message.type === "warm-engine") {
+    startEngineOnDemand(message.engine).catch(() => {});
+    return;
+  }
+
   // stop-all: fire-and-forget - respond immediately so the popup can close
   // without leaving an open message channel that Chrome will kill mid-flight.
   if (message.type === "stop-all") {

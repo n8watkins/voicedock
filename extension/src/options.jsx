@@ -5,8 +5,8 @@ import {
   defaultProfile,
   describeProfileVoice,
   ENGINES,
-  engineBaseUrl,
   engineLabel,
+  engineUsable,
   ENGINE_IDS,
   favoritesFor,
   fmt,
@@ -25,6 +25,7 @@ import {
   runSettingsMigration,
   STATUS_SHORT,
   uuid,
+  voicesUrl,
 } from './shared.js';
 import { EngineStatus, Icon, useEngines } from './ui.jsx';
 
@@ -50,8 +51,8 @@ const ENGINE_SETUP = {
   },
   kokoro: {
     folder: 'servers/kokoro/',
-    command: './setup.sh && ./install-service.sh',
-    what: 'in WSL or Linux to download the Kokoro model (338 MB, once) and run it as a service.',
+    command: 'powershell -ExecutionPolicy Bypass -File setup.ps1',
+    what: 'with uv installed, to set up Kokoro (338 MB, once; ./setup.sh on macOS and Linux). VoiceDock then starts it when you read.',
     anchor: 'kokoro-server',
   },
 };
@@ -141,7 +142,7 @@ function OptionsApp() {
   // true when the engine answers, false when it doesn't, null while checking.
   const engineStatus = Object.fromEntries(LOCAL_ENGINE_IDS.map((id) => {
     const { state } = engines[id];
-    return [id, state === 'checking' ? null : state === 'ready' || state === 'starting'];
+    return [id, state === 'checking' ? null : engineUsable(state)];
   }));
   const [voicesEngine, setVoicesEngine] = useState('piper');
   const [createOpen, setCreateOpen] = useState(false);
@@ -223,12 +224,18 @@ function OptionsApp() {
   // already says what's wrong.
   async function fetchVoices(engine) {
     const online = await checkEngineStatus(engine);
-    if (!online) {
+    // Kokoro in standby: the Piper server lists its voices without starting it.
+    const url = online ? voicesUrl(engine, 'ready') : engine === 'kokoro' ? voicesUrl(engine, 'standby') : null;
+    if (!url) {
       setVoiceLoadError((prev) => ({ ...prev, [engine]: '' }));
       return;
     }
     try {
-      const res = await fetch(`${engineBaseUrl(engine)}/voices`);
+      const res = await fetch(url);
+      if (!online && !res.ok) {
+        setVoiceLoadError((prev) => ({ ...prev, [engine]: '' }));
+        return;
+      }
       if (!res.ok) throw new Error(`Server responded ${res.status}`);
       const data = await res.json();
       setVoicesByEngine((prev) => ({ ...prev, [engine]: Array.isArray(data.voices) ? data.voices : [] }));
@@ -239,6 +246,7 @@ function OptionsApp() {
       }
       setVoiceLoadError((prev) => ({ ...prev, [engine]: '' }));
     } catch (error) {
+      if (!online) return; // standby list unavailable: keep the last list quietly
       setVoicesByEngine((prev) => ({ ...prev, [engine]: [] }));
       if (engine === 'piper') {
         setVoiceSizes({});
@@ -961,7 +969,7 @@ function OptionsApp() {
           </div>
           <div className="credits-section">
             <h4 className="credits-section-title">Setup</h4>
-            <p className="credits-body"><strong>Piper</strong> is the light default: about 20 MB of RAM when idle, plus a voice while it reads. <strong>Kokoro</strong> is optional: a 338 MB one-time download and about 300-700 MB of RAM while its model is loaded (it is released after 10 idle minutes), and it needs Python, in WSL on Windows. The <strong>Basic voice</strong> needs no setup at all and is the fallback when an engine is offline.</p>
+            <p className="credits-body"><strong>Piper</strong> is the light default: about 20 MB of RAM when idle, plus a voice while it reads. <strong>Kokoro</strong> is optional: a 338 MB one-time download and about 500-600 MB of RAM while it reads; it starts when you read and stops after 30 idle minutes. The <strong>Basic voice</strong> needs no setup at all and is the fallback when an engine is offline.</p>
             <p className="credits-body">Full installation instructions, including how to set up the Piper and Kokoro servers, add voices, and load the extension, are in the project README.</p>
             <a className="btn btn-primary credits-readme-btn" href="https://github.com/n8watkins/voicedock#readme" target="_blank">README and setup guide<Icon name="external" size="s" /></a>
           </div>

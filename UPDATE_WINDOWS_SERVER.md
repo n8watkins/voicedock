@@ -1,7 +1,7 @@
 # VoiceDock on the owner's Windows PC
 
 What runs where on the owner's PC, and how to update each part.
-Checked 2026-11-09.
+Checked 2026-11-09 (Kokoro moved from WSL to Windows that day).
 
 ## What is running
 
@@ -11,7 +11,7 @@ Checked 2026-11-09.
 | Piper server | `C:\Users\natha\Projects\Tools\voicedock\servers\piper`, a clone of this repo, on `http://127.0.0.1:7477` |
 | How Piper starts | N8 Tray module `n8voice` (VoiceDock), which reads `piper.path` from `C:\Users\natha\scripts\n8tray\n8voice\config\settings.json` and runs `server.js` with a named Node copy, `voicedock-piper.exe` |
 | Piper binary and voices | `...\servers\piper\piper\` (`piper.exe`, DLLs, `espeak-ng-data\`, the `.onnx` voices); gitignored, they exist only there |
-| Kokoro | The `kokoro-tts` user service in WSL, from `~/projects/extensions/voicedock/servers/kokoro`, on `http://127.0.0.1:7478` |
+| Kokoro | Native on Windows: `C:\Users\natha\Projects\Tools\voicedock\servers\kokoro` (uv environment in `.venv`, models in `models\`), on `http://127.0.0.1:7478`. Not running by default: the Piper server starts it on the first Kokoro read and stops it after 30 idle minutes; its log is `servers\piper\logs\kokoro.log`. |
 
 ## Update the extension
 
@@ -41,6 +41,18 @@ npm ci
 ```
 
 Then restart VoiceDock from N8 Tray (**Stop VoiceDock**, then **Start VoiceDock**) and check `Invoke-RestMethod http://127.0.0.1:7477/health`.
+
+## Update Kokoro
+
+After the `git pull` above, in PowerShell:
+
+```powershell
+cd C:\Users\natha\Projects\Tools\voicedock\servers\kokoro
+powershell -ExecutionPolicy Bypass -File setup.ps1
+```
+
+It installs any changed Python packages from `uv.lock` and skips the model files it already has.
+uv is at `C:\Users\natha\.local\bin\uv.exe` (installed 2026-11-09 with the official installer).
 
 ## Old folders the owner can remove
 

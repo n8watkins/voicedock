@@ -46,6 +46,18 @@ test('popup: Kokoro installed but not running', async ({ engines, openPopup, see
   await expect(shot(page)).toHaveScreenshot('popup-kokoro-stopped.png');
 });
 
+test('popup: a Kokoro that starts on demand is on standby, and opening the popup starts it', async ({ engines, openPopup, seed }) => {
+  await seedProfiles(seed);
+  engines.kokoro.set('stopped');
+  engines.hub.onDemand = true;
+  const page = await openPopup();
+  await expect(page.locator('.dock-cell', { hasText: 'Kokoro' })).toContainText(/Standby|Ready/);
+  await expect(page.locator('.fallback-line')).toHaveCount(0);
+  // The popup on a Kokoro profile warms Kokoro up.
+  await expect.poll(() => engines.hub.starts).toBe(1);
+  await expect(page.locator('.dock-cell', { hasText: 'Kokoro' })).toContainText('Ready', { timeout: 10_000 });
+});
+
 test('popup: picking, searching, filtering and starring voices', async ({ openPopup, seed, serviceWorker }, testInfo) => {
   test.skip(onlyOnce(testInfo));
   await seedProfiles(seed);

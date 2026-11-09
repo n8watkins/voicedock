@@ -39,11 +39,12 @@ The extension expects the defaults.
 
 ```json
 {
-  "status": "ok", "engine": "kokoro", "version": "1.0.0", "voices": 54,
+  "status": "ok", "engine": "kokoro", "version": "1.1.0", "voices": 54,
   "modelLoaded": false, "modelLoading": false, "speaking": false, "rssMb": 46.9, "pid": 4242,
   "startedAt": "2026-11-02T18:00:00Z", "modelLoadedAt": "2026-11-02T18:05:12Z",
   "modelUnloadedAt": "2026-11-02T18:15:20Z", "lastSpeakAt": "2026-11-02T18:05:19Z",
-  "idleSeconds": 640, "idleUnloadSeconds": 600, "listen": "127.0.0.1:7478", "exposed": false
+  "idleSeconds": 640, "idleUnloadSeconds": 600, "idleExitSeconds": 1800,
+  "listen": "127.0.0.1:7478", "exposed": false
 }
 ```
 
@@ -53,7 +54,7 @@ The extension expects the defaults.
 | `engine` | `"piper"` or `"kokoro"` | Which engine answered. |
 | `version` | string | The server's own version (the servers are versioned separately from the extension). |
 | `pid`, `startedAt` | number, ISO 8601 UTC string | The server's process id and when it started. |
-| `rssMb` | number or null | The server process's resident memory in MB. For Piper this is the Node server alone; for Kokoro it includes the model when loaded (null where the OS doesn't expose it cheaply; Linux and WSL do). |
+| `rssMb` | number or null | The server process's resident memory in MB. For Piper this is the Node server alone; for Kokoro it includes the model when loaded (the working set on Windows; null when neither psutil nor Linux's /proc is available). |
 | `speaking` | boolean | A `/tts` request is being synthesized right now. Kokoro runs one synthesis at a time, so for Kokoro this also covers requests waiting their turn. |
 | `lastSpeakAt` | ISO 8601 UTC string or null | When the last `/tts` synthesis started (`null`: none since start). |
 | `voices` | number | Kokoro only: how many voices are available. |
@@ -145,10 +146,23 @@ Kokoro's voices live in a single bundled file, so it has no equivalents.
 | `DELETE` | `/voices/:name` | Deletes `name` (a `.onnx` filename) and its `.onnx.json` config. |
 | `POST` | `/voices/open-folder` | Opens the voices folder in the OS file manager. |
 
+## Piper server: engines
+
+The Piper server also runs Kokoro on demand (see [servers/kokoro/README.md](../servers/kokoro/README.md#run-on-demand-through-the-piper-server)).
+Same origin rule as every route.
+
+| Method | Path | Does |
+| --- | --- | --- |
+| `GET` | `/engines` | `{"engines": [piper, kokoro]}`. Kokoro's entry: `state` (`not-installed`, `stopped`, `starting`, `ready`), `startsOnDemand`, `owned` (started by this server), `pid`, `rssMb`, `modelLoaded`, `stopAfterSeconds`, and `setup` (what is missing, or null). |
+| `POST` | `/engines/kokoro/start` | Starts Kokoro if it isn't answering and replies once it does: `200 {"ok": true, "state": "ready", "owned", "startedMs"}`. `409` with `"reason": "not-installed"` when Kokoro isn't set up, `503` with `"reason": "failed"` when it didn't answer within 25 s. |
+| `POST` | `/engines/kokoro/stop` | Stops the Kokoro this server started: `{"ok": true, "stopped": true or false}`. Never stops one started elsewhere. |
+| `GET` | `/engines/kokoro/voices` | Kokoro's voices without starting it, read from its voices file: same shape as Kokoro's `GET /voices`; `404` when Kokoro isn't set up. |
+
 ## Tests
 
 - `test/piper-server.test.mjs`: Piper routes, error shapes, the origin check and the memory fields while a (fake) `piper` reads (no `piper.exe` needed).
 - `test/piper-memory.test.mjs`: Piper reader tracking and memory sampling.
+- `test/kokoro-launcher.test.mjs`: Kokoro on demand (start, shared starts, stop, a Piper read stopping it) and the `/engines` routes, with a fake process.
 - `servers/kokoro/tests/test_server.py`: Kokoro routes, error shapes, the origin check and CORS, with a fake engine (no model needed).
 
 `npm test` runs both.

@@ -8,8 +8,9 @@ VoiceDock has two local engines, chosen per profile:
 - **[Piper](https://github.com/rhasspy/piper)**, the light default: fast, with downloadable English voices (Node.js server on port 7477).
   It idles at about 20 MB of RAM and loads a voice (60-150 MB) only while it reads.
 - **[Kokoro](https://huggingface.co/hexgrad/Kokoro-82M)**, optional: more natural, 54 voices in 9 languages, slightly slower (Python server on port 7478).
-  It costs a 338 MB one-time download and about 300-700 MB of RAM while its model is loaded; the model loads on the first read and is released after 10 idle minutes, leaving about 45 MB.
-  It needs Python, which on Windows means WSL.
+  It costs a 338 MB one-time download and about 500-600 MB of RAM while it reads.
+  It runs only while you use it: the Piper server starts it on your first Kokoro read and stops it after 30 idle minutes.
+  It installs with [uv](https://docs.astral.sh/uv/) on Windows, macOS and Linux (no WSL).
 
 The Basic voice (Chrome's built-in speech) is the zero-setup choice and the automatic fallback when an engine is offline, so the extension works instantly with no server at all.
 Set up Piper for natural local voices, and add Kokoro only if you want its voices and have the memory to spare.
@@ -53,7 +54,7 @@ voicedock/                      (VoiceDock)
 │   └── popup.*, options.*, icons/, fonts/
 ├── servers/
 │   ├── piper/                  Node.js server that runs piper.exe (port 7477), plus the VoiceDock tray
-│   └── kokoro/                 Python server that runs Kokoro-82M (port 7478), plus a systemd unit
+│   └── kokoro/                 Python server that runs Kokoro-82M (port 7478), set up with uv
 ├── docs/
 │   ├── API.md                  The engine API both servers implement
 │   ├── NAMING.md               The VoiceDock name, alternatives, and what a rename touches
@@ -184,23 +185,50 @@ Test, star, or delete voices from **Settings → Voices → Piper**.
 
 #### Kokoro server (optional)
 
-Kokoro is optional.
-Skip it if Piper's voices are good enough for you or memory is tight:
+Skip Kokoro if Piper's voices are good enough for you or memory is tight.
+It costs a 338 MB download (once) and about 500-600 MB of RAM while it reads, and nothing when you don't use it.
 
-- **Download:** 338 MB, once (the model and its voices), plus the Python packages.
-- **Memory:** about 300-700 MB of RAM while the model is loaded (more while speaking), and about 45 MB when idle: the model loads on the first read (adding 1-3 s to it) and is released after 10 idle minutes (`KOKORO_IDLE_UNLOAD_SECONDS`).
-- **Needs:** Python 3.10 or newer on Linux, or WSL on Windows (the WSL VM itself uses memory too).
+**Windows** (PowerShell, from the `voicedock` folder):
 
-WSL2 mirrors `localhost` to Windows, so Chrome on Windows reaches it at `127.0.0.1:7478`.
+1. Install uv, the Python package manager Kokoro runs on (skip if `uv --version` works):
 
-```bash
-cd servers/kokoro
-./setup.sh            # venv + kokoro-onnx + the Kokoro-82M model (338 MB)
-./install-service.sh  # systemd user service: starts at login, restarts on crash
-```
+   ```powershell
+   powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+   ```
 
-Or run it in the foreground with `./start.sh`.
-See [servers/kokoro/README.md](servers/kokoro/README.md) for details, logs, and the no-systemd fallback.
+2. Set up Kokoro: its Python packages and the model (338 MB):
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File servers\kokoro\setup.ps1
+   ```
+
+   It ends with `Kokoro is set up.`
+   Already have the model files (for example from an old WSL install)? Add `-ModelsFrom <folder>` to copy them instead of downloading.
+
+3. Restart the Piper server (the tray's **Restart**), so it can start Kokoro.
+
+**macOS and Linux:**
+
+1. Install uv: `curl -LsSf https://astral.sh/uv/install.sh | sh`
+2. Set up Kokoro: `servers/kokoro/setup.sh` (ends with `Kokoro is set up.`)
+3. Restart the Piper server.
+
+**How you know it worked:** VoiceDock's popup and Settings show Kokoro as **Starts when you read**.
+Read with a Kokoro voice: the first read starts Kokoro (about 1 s, plus 1-2 s to load the model), later ones begin in under a second.
+
+**How it runs:** the Piper server starts Kokoro on demand, and Kokoro stops again when nobody uses it:
+
+| Kokoro is | Memory (Windows, measured) |
+| --- | --- |
+| Not started (the default) | none |
+| Started, model not loaded | about 30 MB |
+| Reading | about 510-625 MB |
+| Idle 10 minutes: model released | about 80 MB |
+| Idle 30 minutes, or a Piper read, or the Piper server stops | stopped, none |
+
+Change the times with `KOKORO_IDLE_UNLOAD_SECONDS` (Kokoro) and `KOKORO_STOP_AFTER_SECONDS` (the Piper server).
+To run Kokoro by hand instead (it then stays up), use `servers\kokoro\start.ps1` or `servers/kokoro/start.sh`; on Linux a systemd user service is also available.
+See [servers/kokoro/README.md](servers/kokoro/README.md).
 
 ### Step 4 - Verify in Chrome
 
@@ -246,7 +274,7 @@ Switch profiles with the `‹` / `›` arrows in the popup, or use **Read as…*
 
 | | Basic voice | Piper | Kokoro |
 | --- | --- | --- | --- |
-| Setup | None | `npm run setup` (Node.js) | Optional: Python, WSL on Windows |
+| Setup | None | `npm run setup` (Node.js) | Optional: uv, then `setup.ps1` or `setup.sh` |
 | Download | None | Piper plus about 60-120 MB per voice | 338 MB, once |
 | RAM | None extra | About 20 MB idle, plus 60-150 MB while reading | About 45 MB idle, 300-700 MB while the model is loaded |
 | Needs a local server | No | Yes (port 7477) | Yes (port 7478) |
@@ -341,7 +369,7 @@ Chrome leaves a suggested shortcut unassigned when it is already taken, which is
 
 **An engine shows Offline.**
 Piper: run `npm start` (or the tray) in `servers/piper/` and check that port 7477 is free.
-Kokoro: run `systemctl --user status kokoro-tts` in WSL, or `./start.sh` in `servers/kokoro/`, and check port 7478.
+Kokoro: it starts on demand through the Piper server, so check Piper first; then check that `servers/kokoro` was set up (`setup.ps1` or `setup.sh`), and look in `servers/piper/logs/kokoro.log`.
 Then press **Check again** on the Settings tab.
 
 **A profile sounds like the Basic voice.**
@@ -350,7 +378,7 @@ Start the engine, or turn the fallback off in Settings to get an error instead.
 
 **No audio at all.**
 Open DevTools (F12 → Console) on the page and look for errors.
-Common causes: no Piper voice downloaded, a missing `piper.exe`, or the Kokoro model not downloaded (run `./setup.sh`).
+Common causes: no Piper voice downloaded, a missing `piper.exe`, or Kokoro not set up (run `setup.ps1` or `setup.sh` in `servers/kokoro`).
 
 ---
 

@@ -10,6 +10,7 @@ import {
   LOCAL_ENGINE_IDS,
   markEngineSeen,
   probeEngine,
+  probeHub,
   STATUS_LABEL,
   STATUS_SHORT,
 } from './shared.js';
@@ -44,10 +45,12 @@ export function EngineMono({ engine, small = false }) {
 
 // Checks Piper and Kokoro now and every pollMs while the page is visible, and
 // remembers which ones have ever answered, so an engine that stopped reads as
-// "Installed but not running" rather than "Not installed".
+// "Installed but not running" rather than "Not installed". A Kokoro the Piper
+// server can start on demand reads as "Starts when you read" (standby).
 //   engines[id] = { state, health }   recheck() checks again now
 export function useEngines({ pollMs = 0 } = {}) {
   const [healthById, setHealthById] = useState({});
+  const [hub, setHub] = useState({});
   const [seen, setSeen] = useState(null);
   const [checkedAt, setCheckedAt] = useState(0);
   const [checking, setChecking] = useState(false);
@@ -74,7 +77,10 @@ export function useEngines({ pollMs = 0 } = {}) {
   const recheck = useCallback(async () => {
     setChecking(true);
     const results = await Promise.all(LOCAL_ENGINE_IDS.map(async (id) => [id, await probeEngine(id)]));
-    setHealthById(Object.fromEntries(results));
+    // The Piper server knows whether it can start Kokoro on demand.
+    const byId = Object.fromEntries(results);
+    setHub(byId.piper && !byId.kokoro ? await probeHub() : {});
+    setHealthById(byId);
     let nextSeen = seenRef.current;
     for (const [id, health] of results) {
       if (!health) continue;
@@ -103,7 +109,7 @@ export function useEngines({ pollMs = 0 } = {}) {
     const health = healthById[id];
     // Until the remembered list loads, an engine that didn't answer is still
     // "Checking", so it never flashes "Not installed" first.
-    engines[id] = { state: health === null && seen === null ? 'checking' : engineState(id, health, seen?.[id]), health: health ?? null };
+    engines[id] = { state: health === null && seen === null ? 'checking' : engineState(id, health, seen?.[id], hub[id]), health: health ?? null };
   }
   return { engines, recheck, checking, checkedAt };
 }

@@ -225,7 +225,9 @@ class FakeClock:
         return self.now
 
 
-class LazyEngineTests(unittest.TestCase):
+class EngineFixture(unittest.TestCase):
+    """A KokoroEngine over a fake model, a fake clock and fake memory."""
+
     VOICES = ["af_heart", "bm_george", "ef_dora"]
 
     def setUp(self):
@@ -274,6 +276,8 @@ class LazyEngineTests(unittest.TestCase):
         self.addCleanup(engine.stop)
         return engine
 
+
+class LazyEngineTests(EngineFixture):
     def test_starts_without_loading_the_model(self):
         engine = self.engine()
         self.assertFalse(engine.is_loaded())
@@ -577,6 +581,63 @@ class LazyEngineTests(unittest.TestCase):
             httpd.shutdown()
             httpd.server_close()
             thread.join(timeout=5)
+
+
+class ExitTests(EngineFixture):
+    """The whole process stops when idle long enough or when its parent is gone."""
+
+    def test_idle_seconds_counts_from_the_last_read(self):
+        engine = self.engine()
+        self.clock.now += 30
+        self.assertEqual(engine.idle_seconds(), 30)
+        engine.synthesize("hi", "af_heart", 1.0, "en-us")
+        self.assertEqual(engine.idle_seconds(), 0)
+        self.clock.now += 5
+        self.assertEqual(engine.idle_seconds(), 5)
+
+    def test_exit_reason_after_the_idle_exit_period(self):
+        engine = self.engine()
+        engine.synthesize("hi", "af_heart", 1.0, "en-us")
+        self.clock.now += 1799
+        self.assertIsNone(server.exit_reason(engine, 1800, 0))
+        self.clock.now += 1
+        self.assertIn("no reads for 1800", server.exit_reason(engine, 1800, 0))
+
+    def test_zero_idle_exit_never_exits(self):
+        engine = self.engine()
+        self.clock.now += 10**9
+        self.assertIsNone(server.exit_reason(engine, 0, 0))
+
+    def test_exit_reason_when_the_parent_is_gone(self):
+        engine = self.engine()
+        self.assertIsNone(server.exit_reason(engine, 0, 1234, is_alive=lambda pid: True))
+        self.assertIn("1234", server.exit_reason(engine, 0, 1234, is_alive=lambda pid: False))
+
+    def test_watch_shuts_the_server_down(self):
+        engine = self.engine()
+        httpd = server.create_server(engine, "127.0.0.1", 0)
+        self.addCleanup(httpd.server_close)
+        thread = threading.Thread(target=httpd.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True)
+        thread.start()
+        server.watch_for_exit(httpd, engine, 0, 99, interval=0.02, is_alive=lambda pid: False)
+        thread.join(timeout=5)
+        self.assertFalse(thread.is_alive(), "serve_forever returned after the parent went away")
+
+    def test_nothing_to_watch_starts_no_thread(self):
+        engine = self.engine()
+        httpd = server.create_server(engine, "127.0.0.1", 0)
+        self.addCleanup(httpd.server_close)
+        self.assertIsNone(server.watch_for_exit(httpd, engine, 0, 0))
+
+    def test_seconds_from_env(self):
+        self.assertEqual(server.seconds_from_env("X", None), 0)
+        self.assertEqual(server.seconds_from_env("X", "1800"), 1800)
+        self.assertEqual(server.seconds_from_env("X", "-5"), 0)
+        self.assertEqual(server.seconds_from_env("X", "soon"), 0)
+
+    def test_process_rss_is_a_number_or_none(self):
+        rss = server.process_rss_mb()
+        self.assertTrue(rss is None or rss > 0)
 
 
 class HelperTests(unittest.TestCase):

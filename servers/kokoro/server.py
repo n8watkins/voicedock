@@ -13,9 +13,8 @@ docs/API.md in the repo root):
 
 Errors are JSON: {"error": "...", "details": "..."} with a 4xx or 5xx status.
 
-Binds 127.0.0.1:7478 by default (Piper owns 7477). WSL2 mirrors localhost to
-Windows, so a server bound to 127.0.0.1 in WSL is reachable from Windows at the
-same address. Bind to loopback only (never 0.0.0.0): it keeps the model off the
+Binds 127.0.0.1:7478 by default (Piper owns 7477). It runs natively on
+Windows, macOS and Linux (setup.ps1 or setup.sh installs it with uv). Bind to loopback only (never 0.0.0.0): it keeps the model off the
 LAN. The server has no authentication, so a non-loopback KOKORO_HOST logs a
 warning at startup and /health reports "exposed": true.
 
@@ -28,6 +27,9 @@ Memory: the model (about 300-700 MB of RAM while loaded) is loaded lazily on
 the first /tts request and released again after KOKORO_IDLE_UNLOAD_SECONDS
 without requests (default 600; 0 keeps it loaded once loaded). /health and
 /voices never load it: voice names are read from the voices file's index.
+With KOKORO_IDLE_EXIT_SECONDS set (the Piper server sets it when it starts
+Kokoro on demand) the whole process exits after that long without requests,
+and with KOKORO_PARENT_PID it exits when that process is gone.
 
 Stdlib http.server only. kokoro-onnx and numpy are imported when the model is
 loaded, so this module (and its tests) import without them.
@@ -52,7 +54,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Callable, Protocol
 
-VERSION = "1.0.0"
+# numpy's OpenBLAS commits buffers for every CPU thread on import (about
+# 480 MB of private memory on an 8-core Windows PC). Kokoro's numpy work is
+# tiny (onnxruntime does the inference, with its own threads), so one thread
+# loses nothing. Must be set before numpy is imported.
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+
+VERSION = "1.1.0"
 ENGINE = "kokoro"
 
 HOST = os.environ.get("KOKORO_HOST", "127.0.0.1")
@@ -84,6 +92,26 @@ def idle_unload_seconds_from_env(value: str | None) -> float:
 
 
 IDLE_UNLOAD_SECONDS = idle_unload_seconds_from_env(os.environ.get("KOKORO_IDLE_UNLOAD_SECONDS"))
+
+
+def seconds_from_env(name: str, value: str | None) -> float:
+    """A non-negative number of seconds from the environment; 0 when unset or invalid."""
+    if value is None or not value.strip():
+        return 0.0
+    try:
+        return max(0.0, float(value))
+    except ValueError:
+        print(f"[kokoro] ignoring invalid {name}={value!r}", flush=True)
+        return 0.0
+
+
+# Seconds without a /tts request before the whole process exits (0 = never).
+# The VoiceDock Piper server sets it when it starts Kokoro on demand, so an
+# engine nobody uses stops completely instead of idling at about 45 MB.
+IDLE_EXIT_SECONDS = seconds_from_env("KOKORO_IDLE_EXIT_SECONDS", os.environ.get("KOKORO_IDLE_EXIT_SECONDS"))
+# The process that started this server; when it is gone, this server exits
+# too (a Windows parent that is killed does not take its children with it).
+PARENT_PID = int(seconds_from_env("KOKORO_PARENT_PID", os.environ.get("KOKORO_PARENT_PID")))
 
 DEFAULT_VOICE = "af_heart"
 MAX_TEXT_CHARS = 4000
@@ -205,7 +233,17 @@ def release_freed_memory() -> None:
 
 
 def process_rss_mb() -> float | None:
-    """This process's resident memory in MB (Linux /proc), or None elsewhere."""
+    """This process's resident memory in MB (working set on Windows), or None.
+
+    psutil (installed by uv sync) works on every OS; without it, Linux's /proc
+    still answers, so the stdlib-only tests and old venvs keep a reading.
+    """
+    try:
+        import psutil  # imported lazily: optional for the HTTP layer and tests
+
+        return round(psutil.Process().memory_info().rss / (1024 * 1024), 1)
+    except Exception:  # noqa: BLE001 - not installed, or the OS refused
+        pass
     try:
         with open("/proc/self/status", encoding="ascii") as status:
             for line in status:
@@ -214,6 +252,25 @@ def process_rss_mb() -> float | None:
     except OSError:
         pass
     return None
+
+
+def pid_alive(pid: int) -> bool:
+    """Whether a process with this id still exists (psutil, else os.kill 0)."""
+    try:
+        import psutil
+
+        return psutil.pid_exists(pid)
+    except ImportError:
+        pass
+    if os.name == "nt":
+        return True  # cannot tell without psutil; never exit by mistake
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
 
 
 def iso_utc(timestamp: float | None) -> str | None:
@@ -280,7 +337,7 @@ class KokoroEngine:
     ):
         if not model_path.exists() or not voices_path.exists():
             raise SystemExit(
-                f"[kokoro] model files missing under {model_path.parent} - run ./setup.sh first"
+                f"[kokoro] model files missing under {model_path.parent} - run setup.ps1 (Windows) or ./setup.sh first"
             )
         self._model_path = model_path
         self._voices_path = voices_path
@@ -391,6 +448,13 @@ class KokoroEngine:
             self._model_lock.release()
         print(f"[kokoro] model released after {idle:.0f} s idle", flush=True)
         return True
+
+    def idle_seconds(self) -> float:
+        """Seconds since the last synthesis finished; 0 while one is in flight."""
+        with self._lock:
+            if self._active or self._loading:
+                return 0.0
+            return max(0.0, self._clock() - self._last_used)
 
     def seconds_until_unload(self) -> float | None:
         """Seconds until the model is due for release, or None if not loaded."""
@@ -513,6 +577,7 @@ def make_handler(engine: Engine) -> type[BaseHTTPRequestHandler]:
                 status = getattr(engine, "status", None)
                 if status:
                     health.update(status())
+                    health["idleExitSeconds"] = int(IDLE_EXIT_SECONDS)
                 self._json(200, health)
             elif path == "/voices":
                 self._json(200, {
@@ -584,6 +649,51 @@ def create_server(
     return ThreadingHTTPServer((host, port), make_handler(engine))
 
 
+def exit_reason(
+    engine: Engine,
+    idle_exit_seconds: float,
+    parent_pid: int,
+    is_alive: Callable[[int], bool] = pid_alive,
+) -> str | None:
+    """Why the server should exit now, or None to keep running.
+
+    The parent is gone (the Piper server that started this one stopped or
+    crashed), or no /tts request came for idle_exit_seconds.
+    """
+    if parent_pid and not is_alive(parent_pid):
+        return f"parent process {parent_pid} is gone"
+    idle = getattr(engine, "idle_seconds", None)
+    if idle_exit_seconds > 0 and idle is not None and idle() >= idle_exit_seconds:
+        return f"no reads for {idle_exit_seconds:g} s"
+    return None
+
+
+def watch_for_exit(
+    server: ThreadingHTTPServer,
+    engine: Engine,
+    idle_exit_seconds: float,
+    parent_pid: int,
+    interval: float = 5.0,
+    is_alive: Callable[[int], bool] = pid_alive,
+) -> threading.Thread | None:
+    """Shut the server down when exit_reason() says so; None when nothing to watch."""
+    if idle_exit_seconds <= 0 and not parent_pid:
+        return None
+    stop = threading.Event()
+
+    def run() -> None:
+        while not stop.wait(interval):
+            reason = exit_reason(engine, idle_exit_seconds, parent_pid, is_alive)
+            if reason:
+                print(f"[kokoro] stopping: {reason}", flush=True)
+                server.shutdown()
+                return
+
+    thread = threading.Thread(target=run, name="kokoro-exit-watch", daemon=True)
+    thread.start()
+    return thread
+
+
 def main(load_engine: Callable[[], Engine] = KokoroEngine) -> None:
     engine = load_engine()
     server = create_server(engine)
@@ -592,20 +702,23 @@ def main(load_engine: Callable[[], Engine] = KokoroEngine) -> None:
         if IDLE_UNLOAD_SECONDS > 0
         else "kept once loaded"
     )
+    stops = f", stops after {IDLE_EXIT_SECONDS:g} s idle" if IDLE_EXIT_SECONDS > 0 else ""
     print(
         f"[kokoro] VoiceDock Kokoro server v{VERSION}: "
         f"{len(engine.voices())} voices on http://{HOST}:{PORT} "
-        f"(model loads on the first /tts request, {unload})",
+        f"(model loads on the first /tts request, {unload}{stops})",
         flush=True,
     )
     warning = exposure_warning(HOST, PORT)
     if warning:
         print(warning, file=sys.stderr, flush=True)
+    watch_for_exit(server, engine, IDLE_EXIT_SECONDS, PARENT_PID)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         print("\n[kokoro] shutting down", flush=True)
-        server.shutdown()
+    finally:
+        server.server_close()
 
 
 if __name__ == "__main__":

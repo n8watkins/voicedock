@@ -136,6 +136,10 @@ svg.i.fill { fill: currentColor; stroke: none; }
 .vd-status.ready { color: var(--ok); background: var(--ok-soft); }
 .vd-status.starting { color: var(--accent); background: var(--accent-soft); }
 .vd-status.starting::before { animation: vd-pulse 1s ease-in-out infinite; }
+/* Standby: set up and starts on the first read, so it reads as fine (green),
+   with a hollow dot because nothing runs yet. */
+.vd-status.standby { color: var(--ok); background: var(--ok-soft); }
+.vd-status.standby::before { background: transparent; box-shadow: inset 0 0 0 1.5px currentColor; }
 .vd-status.stopped { color: var(--warn); background: var(--warn-soft); }
 .vd-status.missing, .vd-status.checking { color: var(--idle); background: var(--idle-soft); }
 .vd-status.missing::before { background: transparent; box-shadow: inset 0 0 0 1.5px currentColor; }
