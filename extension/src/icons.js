@@ -17,6 +17,7 @@ export const ICONS = {
 
   // Actions
   settings: { shapes: [['path', { d: 'M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3M14 2v4M8 10v4M16 18v4' }]] },
+  clock: { shapes: [['circle', { cx: 12, cy: 12, r: 9 }], ['path', { d: 'M12 7v5l3 2' }]] },
   refresh: { shapes: [['path', { d: 'M21 12a9 9 0 1 1-2.64-6.36L21 8' }], ['path', { d: 'M21 3v5h-5' }]] },
   search: { shapes: [['circle', { cx: 11, cy: 11, r: 7 }], ['path', { d: 'm20 20-3.5-3.5' }]] },
   star: { shapes: [['path', { d: 'm12 2.5 2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4l-5.9 3.1 1.2-6.5-4.8-4.6 6.6-.9L12 2.5Z' }]] },

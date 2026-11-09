@@ -183,3 +183,37 @@ test.describe('reading from a page', () => {
     await expect(page.getByRole('button', { name: 'Read selection' })).toBeVisible();
   });
 });
+
+test('popup: Pocket TTS voices under the Pocket pill, with previews', async ({ engines, openPopup, seed, serviceWorker }) => {
+  await seedProfiles(seed);
+  const page = await openPopup();
+  await page.getByRole('button', { name: /Reading with/ }).click();
+  const picker = page.getByRole('dialog', { name: 'Choose a voice' });
+  await picker.getByRole('radio', { name: /Pocket/ }).click();
+  await expect(picker.getByRole('searchbox', { name: 'Search voices' })).toHaveAttribute('placeholder', 'Search 26 Pocket TTS voices');
+  await expect(picker.getByRole('button', { name: /^Lola/ })).toContainText('English · Spanish speaker');
+  // A sample starts Pocket TTS on demand and reads with that voice.
+  await picker.getByRole('button', { name: 'Play a sample of Stuart Bell' }).click();
+  await expect.poll(() => engines.pocket.state.ttsRequests.at(-1)).toMatchObject({ engine: 'pocket', voice: 'stuart_bell' });
+  await expect.poll(() => engines.hub.starts).toBe(1);
+  await picker.getByRole('button', { name: 'Stop the Stuart Bell sample' }).click().catch(() => {});
+  await picker.locator('.pk-list').evaluate((el) => { el.scrollTop = 0; });
+  await picker.getByRole('searchbox', { name: 'Search voices' }).evaluate((el) => el.blur());
+  await expect(shot(page)).toHaveScreenshot('popup-picker-pocket.png', { mask: [picker.locator('.pv')] });
+  // Choosing a voice saves it on the profile, with its engine.
+  await picker.getByRole('button', { name: /^Vera/ }).click();
+  await expect.poll(async () => (await serviceWorker.evaluate(async () => (await chrome.storage.local.get('profiles')).profiles))[0]).toMatchObject({ engine: 'pocket', voice: 'vera' });
+  await expect(page.locator('.reading .name')).toHaveText('Vera');
+});
+
+test('popup: an engine set up but kept off explains itself in the picker', async ({ engines, openPopup, seed }, testInfo) => {
+  test.skip(onlyOnce(testInfo));
+  await seedProfiles(seed);
+  engines.pocket.set('off');
+  const page = await openPopup();
+  await page.getByRole('button', { name: /Reading with/ }).click();
+  const picker = page.getByRole('dialog', { name: 'Choose a voice' });
+  await picker.getByRole('radio', { name: /Pocket/ }).click();
+  await expect(picker.locator('.setup-note')).toContainText("Pocket TTS is set up, but VoiceDock's server is not running or keeps it off for now.");
+  await expect(picker.getByRole('button', { name: 'How to start' })).toBeVisible();
+});

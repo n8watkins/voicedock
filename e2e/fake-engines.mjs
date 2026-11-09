@@ -1,6 +1,6 @@
 // A fake VoiceDock hub (7477) for the end-to-end tests. It speaks the hub API
-// (docs/API.md) with canned voices and a short tone for /tts, and Piper and
-// Kokoro can each be put in any state the real hub reports.
+// (docs/API.md) with canned voices and a short tone for /tts, and Piper,
+// Kokoro and Pocket TTS can each be put in any state the real hub reports.
 //
 // The extension's host permission names this exact port, so the tests need it
 // free: CI runners have nothing there; on a machine running a real hub, run
@@ -15,6 +15,11 @@ export const PIPER_VOICES = [
   'es_ES-davefx-medium.onnx',
 ];
 export const KOKORO_VOICES = ['af_heart', 'af_bella', 'bm_george', 'ef_dora', 'ff_siwis', 'am_adam'];
+export const POCKET_VOICES = [
+  'alba', 'giovanni', 'lola', 'juergen', 'rafael', 'estelle', 'anna', 'azelma', 'bill_boerst',
+  'caro_davy', 'charles', 'cosette', 'eponine', 'eve', 'fantine', 'george', 'jane', 'jean',
+  'javert', 'marius', 'mary', 'michael', 'paul', 'peter_yearsley', 'stuart_bell', 'vera',
+];
 
 // A mono 16-bit WAV: a soft 220 Hz tone, about 60 ms per word (capped), so
 // reads take a moment but tests stay fast.
@@ -40,22 +45,45 @@ export function toneWav(text, sampleRate = 16000) {
 // ever talks to the hub.
 //
 //   engines.piper.set('running' | 'stopped')   stopped: the whole hub is down
-//   engines.kokoro.set(mode), where mode is
+//   engines.kokoro.set(mode) and engines.pocket.set(mode), where mode is
 //     'running'  ready, model loaded           'starting' starting
 //     'standby'  set up, not running: starts on the first read or a warm-up
 //     'off'      set up, but kept off (Installed but not running)
 //     'stopped'  not set up (Not installed)
 //   engines.<id>.state.ttsRequests   the reads that reached that engine
-//   engines.hub.starts               warm-ups and cold reads that started Kokoro
+//   engines.hub.starts               warm-ups and cold reads that started a heavy engine
 //   engines.hub.presence             heartbeats received
+//   engines.hub.events               what GET /hub/events lists
 export async function startFakeEngines() {
   const piper = { state: { mode: 'running', ttsRequests: [] }, set(mode) { piper.state.mode = mode; if (mode === 'stopped') dropAll(); } };
   const kokoro = { state: { mode: 'running', ttsRequests: [] }, set(mode) { kokoro.state.mode = mode; } };
-  const hub = { starts: 0, presence: [], onDemand: false };
+  const pocket = { state: { mode: 'standby', ttsRequests: [] }, set(mode) { pocket.state.mode = mode; } };
+  const heavy = { kokoro, pocket };
+  const hub = { starts: 0, presence: [], onDemand: false, events: [] };
   const sockets = new Set();
   const dropAll = () => { for (const socket of sockets) socket.destroy(); };
 
   const KOKORO_STATE = { running: 'ready', starting: 'starting', standby: 'idle', off: 'stopped', stopped: 'not-installed' };
+  const POCKET_SETUP = 'Pocket TTS is not set up: run node engines.js install pocket in servers/piper';
+  const pocketEntry = () => {
+    const state = KOKORO_STATE[pocket.state.mode] || 'not-installed';
+    const installed = state !== 'not-installed';
+    return {
+      id: 'pocket', name: 'Pocket TTS', heavy: true, state, installed, running: state === 'ready',
+      startsOnDemand: state === 'idle', speaking: false, voices: installed ? POCKET_VOICES.length : null,
+      rssMb: state === 'ready' ? 410 : null, modelLoaded: state === 'ready', version: '4.0.1',
+      detail: {
+        ready: 'Ready, stops in 9 min',
+        starting: 'Starting, about 1 s',
+        idle: 'Starts when you read, about 1 s',
+        stopped: 'Memory is low, so Pocket TTS stays off for now',
+        'not-installed': POCKET_SETUP,
+      }[state],
+      setup: installed ? null : POCKET_SETUP,
+      coldStart: { estimateMs: 1100, budgetMs: 15000, processMs: 500, modelLoadMs: null },
+    };
+  };
+  const entries = { kokoro: () => kokoroEntry(), pocket: pocketEntry };
   const kokoroEntry = () => {
     const state = KOKORO_STATE[kokoro.state.mode] || 'not-installed';
     const installed = state !== 'not-installed';
@@ -79,12 +107,18 @@ export async function startFakeEngines() {
     speaking: false, voices: PIPER_VOICES.length, rssMb: 0, detail: `${PIPER_VOICES.length} voices, no process while idle`,
     setup: null, coldStart: { estimateMs: 1000, budgetMs: 2000 },
   });
-  // A cold Kokoro starts in 300 ms here.
-  const startKokoro = () => {
-    if (kokoro.state.mode !== 'standby') return Promise.resolve();
+  // A cold heavy engine starts in 300 ms here.
+  const startHeavy = (id) => {
+    const engine = heavy[id];
+    if (engine.state.mode !== 'standby') return Promise.resolve();
     hub.starts += 1;
-    kokoro.state.mode = 'starting';
-    return new Promise((resolve) => setTimeout(() => { kokoro.state.mode = 'running'; resolve(); }, 300));
+    engine.state.mode = 'starting';
+    hub.events.push({ at: new Date().toISOString(), type: 'start', engine: id, manual: false });
+    return new Promise((resolve) => setTimeout(() => {
+      engine.state.mode = 'running';
+      hub.events.push({ at: new Date().toISOString(), type: 'ready', engine: id, startedMs: 300 });
+      resolve();
+    }, 300));
   };
 
   const json = (res, status, body) => {
@@ -105,7 +139,7 @@ export async function startFakeEngines() {
       return json(res, 200, { status: 'ok', engine: 'piper', api: 2, version: '1.0.0', pid: 4242, rssMb: 24.7, speaking: false });
     }
     if (route === 'GET /engines') {
-      return json(res, 200, { api: 2, pressure: 'ok', presence: { lastSeenAt: null, clients: hub.presence.length ? 1 : 0 }, engines: [piperEntry(), kokoroEntry()] });
+      return json(res, 200, { api: 2, pressure: 'ok', presence: { lastSeenAt: null, clients: hub.presence.length ? 1 : 0 }, engines: [piperEntry(), kokoroEntry(), pocketEntry()] });
     }
     if (route === 'GET /voices' || route === 'GET /engines/piper/voices') {
       return json(res, 200, {
@@ -113,16 +147,22 @@ export async function startFakeEngines() {
         sizes: Object.fromEntries(PIPER_VOICES.map((v, i) => [v, 63_000_000 + i * 11_000_000])), voiceDir: 'C:\\VoiceDock\\servers\\piper\\piper\\voices',
       });
     }
-    if (route === 'GET /engines/kokoro/voices') {
-      if (kokoroEntry().state === 'not-installed') return json(res, 404, { error: 'Kokoro is not set up.' });
-      return json(res, 200, { engine: 'kokoro', voices: KOKORO_VOICES, defaultVoice: 'af_heart' });
+    if (route === 'GET /hub/events') return json(res, 200, { events: hub.events });
+    const voicesRoute = /^GET \/engines\/(kokoro|pocket)\/voices$/.exec(route);
+    if (voicesRoute) {
+      const id = voicesRoute[1];
+      if (entries[id]().state === 'not-installed') return json(res, 404, { error: `${entries[id]().name} is not set up.` });
+      return json(res, 200, id === 'kokoro'
+        ? { engine: 'kokoro', voices: KOKORO_VOICES, defaultVoice: 'af_heart' }
+        : { engine: 'pocket', voices: POCKET_VOICES, defaultVoice: 'alba' });
     }
-    if (route === 'POST /engines/kokoro/warm') {
-      const entry = kokoroEntry();
+    const warmRoute = /^POST \/engines\/(kokoro|pocket)\/warm$/.exec(route);
+    if (warmRoute) {
+      const entry = entries[warmRoute[1]]();
       if (entry.state === 'not-installed') return json(res, 409, { outcome: 'refused', reason: 'not-installed' });
       if (entry.state !== 'idle') return json(res, 200, { outcome: 'already', state: entry.state });
-      startKokoro();
-      return json(res, 202, { outcome: 'ok', state: 'starting', expectedMs: 3400 });
+      startHeavy(warmRoute[1]);
+      return json(res, 202, { outcome: 'ok', state: 'starting', expectedMs: entry.coldStart.estimateMs });
     }
     if (route === 'POST /presence') {
       hub.presence.push(await readBody(req));
@@ -131,13 +171,13 @@ export async function startFakeEngines() {
     if (route === 'POST /tts') {
       const body = await readBody(req);
       const engine = body.engine || 'piper';
-      if (engine === 'kokoro') {
-        const state = kokoroEntry().state;
-        if (state === 'not-installed') return json(res, 409, { error: 'Kokoro is not set up.', reason: 'not-installed' });
-        if (state === 'stopped') return json(res, 503, { error: 'Memory is low, so Kokoro does not start now.', reason: 'low-memory' });
-        await startKokoro();
+      if (heavy[engine]) {
+        const { state, name } = entries[engine]();
+        if (state === 'not-installed') return json(res, 409, { error: `${name} is not set up.`, reason: 'not-installed' });
+        if (state === 'stopped') return json(res, 503, { error: `Memory is low, so ${name} does not start now.`, reason: 'low-memory' });
+        await startHeavy(engine);
       }
-      (engine === 'kokoro' ? kokoro : piper).state.ttsRequests.push(body);
+      (heavy[engine] || piper).state.ttsRequests.push(body);
       res.writeHead(200, { 'Content-Type': 'audio/wav' });
       return res.end(toneWav(body.text || ''));
     }
@@ -162,14 +202,18 @@ export async function startFakeEngines() {
   return {
     piper,
     kokoro,
+    pocket,
     hub,
     reset() {
       piper.state.mode = 'running';
       kokoro.state.mode = 'running';
+      pocket.state.mode = 'standby';
       piper.state.ttsRequests.length = 0;
       kokoro.state.ttsRequests.length = 0;
+      pocket.state.ttsRequests.length = 0;
       hub.starts = 0;
       hub.presence.length = 0;
+      hub.events.length = 0;
     },
     close: () => new Promise((resolve) => { dropAll(); server.close(() => resolve()); }),
   };

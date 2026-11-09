@@ -1,9 +1,9 @@
 // The voice catalog the popup's picker shows: every engine's voices as rows
 // with a friendly name, a one-line description, a language to filter on and
 // an optional tag. Pure, so it is tested without a browser.
-import { describeLocale, engineLabel, kokoroVoiceDetails, piperVoiceDetails } from './shared.js';
+import { describeLocale, engineLabel, kokoroVoiceDetails, piperVoiceDetails, pocketVoiceDetails } from './shared.js';
 
-export const ENGINE_ORDER = ['piper', 'kokoro', 'browser'];
+export const ENGINE_ORDER = ['piper', 'kokoro', 'pocket', 'browser'];
 
 // System voice names often repeat their language ("Microsoft Zira - English
 // (United States)"); the language shows on its own line.
@@ -11,10 +11,10 @@ function systemVoiceName(voiceName) {
   return String(voiceName || '').replace(/\s+[-–]\s+.*\(.*\)\s*$/, '').trim() || voiceName;
 }
 
-// piper / kokoro: voice ids from each engine's /voices.
+// piper / kokoro / pocket: voice ids from each engine's voices list.
 // browser: chrome.tts.getVoices() results; online (remote) voices are left out,
 // because they send the text to a server and VoiceDock reads on this device.
-export function buildVoiceCatalog({ piper = [], kokoro = [], browser = [] } = {}) {
+export function buildVoiceCatalog({ piper = [], kokoro = [], pocket = [], browser = [] } = {}) {
   const rows = [];
   for (const id of piper) {
     const d = piperVoiceDetails(id);
@@ -23,6 +23,10 @@ export function buildVoiceCatalog({ piper = [], kokoro = [], browser = [] } = {}
   for (const id of kokoro) {
     const d = kokoroVoiceDetails(id);
     rows.push({ engine: 'kokoro', id, name: d?.name || id, meta: d ? `${d.language} · ${d.gender}` : '', language: d?.baseLanguage || 'Other', tag: '' });
+  }
+  for (const id of pocket) {
+    const d = pocketVoiceDetails(id);
+    rows.push({ engine: 'pocket', id, name: d?.name || id, meta: d ? [d.language, d.accent].filter(Boolean).join(' · ') : '', language: d?.baseLanguage || 'Other', tag: '' });
   }
   rows.push({ engine: 'browser', id: '', name: 'Automatic', meta: 'The best voice on this device', language: '', tag: '' });
   const seen = new Set();
@@ -63,6 +67,7 @@ export function rowForProfile(rows, profile, defaultVoiceByEngine = {}) {
   if (found) return found;
   if (engine === 'piper' && id) return buildVoiceCatalog({ piper: [id] })[0];
   if (engine === 'kokoro' && id) return buildVoiceCatalog({ kokoro: [id] })[0];
+  if (engine === 'pocket' && id) return buildVoiceCatalog({ pocket: [id] })[0];
   if (engine === 'browser' && id) return { engine, id, name: id, meta: 'On this device', language: 'Other', tag: '' };
   return { engine, id: '', name: engine === 'browser' ? 'Basic voice' : 'Default voice', meta: engine === 'browser' ? 'On this device' : '', language: '', tag: '' };
 }
