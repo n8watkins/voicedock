@@ -87,6 +87,12 @@ export const test = base.extend({
   // it can't overwrite what the test seeds).
   seed: async ({ serviceWorker, context, extensionId }, use) => {
     await waitForWelcomeTab(context, extensionId);
+    // The install handler seeds a default profile and builds the menus; wait
+    // until it has, so it can't overwrite what the test writes next.
+    await expect.poll(() => serviceWorker.evaluate(async () => {
+      const { profiles, settingsVersion } = await chrome.storage.local.get(['profiles', 'settingsVersion']);
+      return Array.isArray(profiles) && profiles.length > 0 && Boolean(settingsVersion);
+    }), { timeout: 10_000 }).toBe(true);
     await use(async (data) => {
       await serviceWorker.evaluate(async (items) => {
         await chrome.storage.local.set(items);
