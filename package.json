@@ -30,7 +30,7 @@
     "@axe-core/playwright": "4.14.0",
     "@playwright/test": "1.64.1",
     "esbuild": "^0.28.0",
-    "release-kit": "github:n8watkins/release-kit#v2.8.1"
+    "release-kit": "github:n8watkins/release-kit#v2.9.0"
   },
   "engines": {
     "node": ">=18"
