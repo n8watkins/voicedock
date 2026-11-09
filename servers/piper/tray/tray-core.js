@@ -14,7 +14,7 @@ const DEFAULT_SETTINGS = Object.freeze({
   // the "Launch at login" toggle is the user's choice.
   autostartChosen: false,
   // Set once Kokoro has answered /health, so a later outage reads as
-  // "not reachable" (for example WSL is off) rather than "not installed".
+  // "not running" (it starts on the next read) rather than "not installed".
   kokoroSeen: false,
   memoryHistory: { enabled: false, intervalSeconds: 60, keepDays: 30 },
 });
@@ -85,17 +85,17 @@ function piperStatusText(health, managed) {
 }
 
 /**
- * Kokoro runs in WSL or Linux and the tray never starts it (that would mean
- * calling wsl.exe, which boots the VM). Status comes only from its /health:
- * running, or "not installed" / "not reachable" depending on whether it has
- * ever answered on this machine.
+ * Kokoro starts on demand through the Piper server (servers/piper/kokoro.js),
+ * so the tray never starts it. Status comes only from its /health: running,
+ * or "not installed" / "not running" depending on whether it has ever
+ * answered on this machine. Not running is normal: it starts on the next read.
  */
 function kokoroStatusText(health, seen) {
   if (health) {
     const memory = kokoroMemoryText(health);
     return `Kokoro: Running${memory ? ` · ${memory}` : ''}`;
   }
-  return seen ? 'Kokoro: Not reachable' : 'Kokoro: Not installed (optional)';
+  return seen ? 'Kokoro: Not running (starts when you read)' : 'Kokoro: Not installed (optional)';
 }
 
 /** One-line tooltip, kept under the 127 characters Windows shows. */
@@ -103,7 +103,7 @@ function tooltipText(piperHealth, kokoroHealth, kokoroSeen) {
   const piper = piperHealth ? `Piper ${piperMemoryText(piperHealth) || 'running'}` : 'Piper stopped';
   let kokoro;
   if (kokoroHealth) kokoro = `Kokoro ${kokoroMemoryText(kokoroHealth) || 'running'}`;
-  else kokoro = kokoroSeen ? 'Kokoro not reachable' : null;
+  else kokoro = kokoroSeen ? 'Kokoro off until a read' : null;
   const text = `VoiceDock | ${piper}${kokoro ? ` · ${kokoro}` : ''}`;
   return text.length > 127 ? `${text.slice(0, 126)}…` : text;
 }

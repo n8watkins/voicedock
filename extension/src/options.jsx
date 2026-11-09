@@ -51,8 +51,8 @@ const ENGINE_SETUP = {
   },
   kokoro: {
     folder: 'servers/kokoro/',
-    command: './setup.sh && ./install-service.sh',
-    what: 'in WSL or Linux to download the Kokoro model (338 MB, once) and run it as a service.',
+    command: 'powershell -ExecutionPolicy Bypass -File setup.ps1',
+    what: 'with uv installed, to set up Kokoro (338 MB, once; ./setup.sh on macOS and Linux). VoiceDock then starts it when you read.',
     anchor: 'kokoro-server',
   },
 };
@@ -969,7 +969,7 @@ function OptionsApp() {
           </div>
           <div className="credits-section">
             <h4 className="credits-section-title">Setup</h4>
-            <p className="credits-body"><strong>Piper</strong> is the light default: about 20 MB of RAM when idle, plus a voice while it reads. <strong>Kokoro</strong> is optional: a 338 MB one-time download and about 300-700 MB of RAM while its model is loaded (it is released after 10 idle minutes), and it needs Python, in WSL on Windows. The <strong>Basic voice</strong> needs no setup at all and is the fallback when an engine is offline.</p>
+            <p className="credits-body"><strong>Piper</strong> is the light default: about 20 MB of RAM when idle, plus a voice while it reads. <strong>Kokoro</strong> is optional: a 338 MB one-time download and about 500-600 MB of RAM while it reads; it starts when you read and stops after 30 idle minutes. The <strong>Basic voice</strong> needs no setup at all and is the fallback when an engine is offline.</p>
             <p className="credits-body">Full installation instructions, including how to set up the Piper and Kokoro servers, add voices, and load the extension, are in the project README.</p>
             <a className="btn btn-primary credits-readme-btn" href="https://github.com/n8watkins/voicedock#readme" target="_blank">README and setup guide<Icon name="external" size="s" /></a>
           </div>

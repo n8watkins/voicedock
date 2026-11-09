@@ -35,7 +35,7 @@ export function toneWav(text, sampleRate = 16000) {
   return buf;
 }
 
-function createEngine({ engine, port, voices, defaultVoice }) {
+function createEngine({ engine, port, voices, defaultVoice, routes = () => false }) {
   const state = { mode: 'running', ttsRequests: [] };
   const sockets = new Set();
   const json = (res, status, body) => {
@@ -71,6 +71,7 @@ function createEngine({ engine, port, voices, defaultVoice }) {
       return undefined;
     }
     if (req.method === 'POST' && url.pathname === '/voices/open-folder') return json(res, 200, { ok: true });
+    if (routes(req, res, url, json)) return undefined;
     return json(res, 404, { error: 'Not found' });
   });
   server.on('connection', (socket) => {
@@ -98,8 +99,33 @@ function createEngine({ engine, port, voices, defaultVoice }) {
 }
 
 export async function startFakeEngines() {
-  const piper = createEngine({ engine: 'piper', port: 7477, voices: PIPER_VOICES, defaultVoice: PIPER_VOICES[0] });
-  const kokoro = createEngine({ engine: 'kokoro', port: 7478, voices: KOKORO_VOICES, defaultVoice: 'af_heart' });
+  // Kokoro on demand: with hub.onDemand, the fake Piper server reports Kokoro
+  // as startable (GET /engines), lists its voices while it is stopped, and
+  // starts it on POST /engines/kokoro/start, like servers/piper/kokoro.js.
+  const hub = { onDemand: false, starts: 0 };
+  let kokoro;
+  const hubRoutes = (req, res, url, json) => {
+    if (req.method === 'GET' && url.pathname === '/engines') {
+      json(res, 200, { engines: [
+        { id: 'piper', state: 'ready', voices: PIPER_VOICES.length },
+        { id: 'kokoro', state: kokoro.state.mode === 'stopped' ? (hub.onDemand ? 'stopped' : 'not-installed') : 'ready', startsOnDemand: hub.onDemand },
+      ] });
+      return true;
+    }
+    if (!hub.onDemand) return false;
+    if (req.method === 'GET' && url.pathname === '/engines/kokoro/voices') {
+      json(res, 200, { engine: 'kokoro', voices: KOKORO_VOICES, defaultVoice: 'af_heart' });
+      return true;
+    }
+    if (req.method === 'POST' && url.pathname === '/engines/kokoro/start') {
+      hub.starts += 1;
+      setTimeout(() => { kokoro.set('running'); json(res, 200, { ok: true, state: 'ready', owned: true, startedMs: 300 }); }, 300);
+      return true;
+    }
+    return false;
+  };
+  const piper = createEngine({ engine: 'piper', port: 7477, voices: PIPER_VOICES, defaultVoice: PIPER_VOICES[0], routes: hubRoutes });
+  kokoro = createEngine({ engine: 'kokoro', port: 7478, voices: KOKORO_VOICES, defaultVoice: 'af_heart' });
   try {
     await piper.listen();
     await kokoro.listen();
@@ -113,7 +139,8 @@ export async function startFakeEngines() {
   return {
     piper,
     kokoro,
-    reset() { piper.set('running'); kokoro.set('running'); piper.state.ttsRequests.length = 0; kokoro.state.ttsRequests.length = 0; },
+    hub,
+    reset() { piper.set('running'); kokoro.set('running'); piper.state.ttsRequests.length = 0; kokoro.state.ttsRequests.length = 0; hub.onDemand = false; hub.starts = 0; },
     close: () => Promise.all([piper.close(), kokoro.close()]),
   };
 }

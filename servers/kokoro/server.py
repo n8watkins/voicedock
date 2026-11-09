@@ -54,7 +54,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Callable, Protocol
 
-VERSION = "1.0.0"
+# numpy's OpenBLAS commits buffers for every CPU thread on import (about
+# 480 MB of private memory on an 8-core Windows PC). Kokoro's numpy work is
+# tiny (onnxruntime does the inference, with its own threads), so one thread
+# loses nothing. Must be set before numpy is imported.
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+
+VERSION = "1.1.0"
 ENGINE = "kokoro"
 
 HOST = os.environ.get("KOKORO_HOST", "127.0.0.1")

@@ -23,7 +23,7 @@ export const ENGINES = {
     mono: 'Ko',
     baseUrl: 'http://127.0.0.1:7478',
     local: true,
-    blurb: 'Optional: more natural voices in 9 languages, for a 338 MB one-time download and about 300-700 MB of RAM while its model is loaded (it is released after 10 idle minutes). Needs Python, in WSL on Windows (port 7478).',
+    blurb: 'Optional: more natural voices in 9 languages. A 338 MB download, then about 500-600 MB of RAM while it reads; it starts when you read and stops after 30 idle minutes (port 7478).',
   },
   browser: {
     id: 'browser',
