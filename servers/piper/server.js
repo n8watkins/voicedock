@@ -16,7 +16,7 @@
  * /n8/v2/*                      → N8 Tray contract v2, with a token (hub/n8tray.js)
  *
  * For one release, the routes the 1.1 extension uses stay:
- * POST /engines/kokoro/start, POST /engines/kokoro/stop, and Kokoro keeps
+ * POST /engines/kokoro/start, and Kokoro keeps
  * answering on its own port 7478.
  *
  * Requires:
@@ -228,9 +228,9 @@ app.post("/engines/kokoro/start", async (_req, res) => {
   }
 });
 
-app.post("/engines/kokoro/stop", async (_req, res) => {
-  res.json({ ok: true, stopped: await app.locals.hub.stopEngine("kokoro", "asked over /engines/kokoro/stop") });
-});
+// No stop without the token: stopping an engine is N8 Tray's
+// (POST /n8/v2/actions/engine.stop), never the data plane's (contract
+// section 9). The hub's own policy stops engines when they are not needed.
 
 // ─── Validation Helpers ───────────────────────────────────────────────────────
 function validateText(text) {

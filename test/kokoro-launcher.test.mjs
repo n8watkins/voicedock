@@ -158,7 +158,7 @@ test('kokoroPython and stopAfterSeconds', () => {
   assert.equal(stopAfterSeconds({ KOKORO_STOP_AFTER_SECONDS: 'soon' }), 1800);
 });
 
-test('the 1.1 extension routes still start and stop Kokoro through the hub', async () => {
+test('the 1.1 extension route still starts Kokoro through the hub, and nothing stops it without a token', async () => {
   const { app } = require('../servers/piper/server.js');
   const real = app.locals.kokoro;
   const events = [];
@@ -181,9 +181,9 @@ test('the 1.1 extension routes still start and stop Kokoro through the hub', asy
     const started = await fetch(`${base}/engines/kokoro/start`, { method: 'POST' });
     assert.equal(started.status, 200);
     assert.deepEqual(await started.json(), { ok: true, state: 'ready', owned: true, startedMs: 3100 });
-    const stopped = await (await fetch(`${base}/engines/kokoro/stop`, { method: 'POST' })).json();
-    assert.equal(stopped.stopped, true);
-    assert.deepEqual(events, ['start', 'stop']);
+    const noStop = await fetch(`${base}/engines/kokoro/stop`, { method: 'POST' });
+    assert.equal(noStop.status, 404, 'stopping needs N8 Tray\'s token');
+    assert.deepEqual(events, ['start']);
 
     app.locals.kokoro.start = async () => { const e = new Error('no venv'); e.code = 'not-installed'; throw e; };
     const refused = await fetch(`${base}/engines/kokoro/start`, { method: 'POST' });
