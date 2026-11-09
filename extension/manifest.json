@@ -34,7 +34,7 @@
   "commands": {
     "read-selection": {
       "suggested_key": {
-        "default": "Alt+Shift+R"
+        "default": "Alt+Shift+S"
       },
       "description": "Read selected text or stop playback"
     },

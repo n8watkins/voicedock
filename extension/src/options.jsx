@@ -859,7 +859,7 @@ function OptionsApp() {
               <li><span className="flow-step">3</span><div>The text is split into sentence chunks and sent to that <strong>local server</strong> (Node.js running <code>piper.exe</code>, or Python running Kokoro-82M), which sends back WAV audio.</div></li>
               <li><span className="flow-step">4</span><div>An <strong>offscreen document</strong> receives each chunk and plays it through the Web Audio API, because Chrome's Manifest V3 service workers can't play audio directly.</div></li>
               <li><span className="flow-step">5</span><div>If the engine is offline or generation fails and <em>Browser voice fallback</em> is on (Settings), the browser's built-in voice is used instead, and the page shows a short note saying so.</div></li>
-              <li><span className="flow-step">6</span><div>Use <strong>keyboard shortcuts</strong> across tabs: <kbd>Alt+Shift+R</kbd> to read selected text or stop playback, and <kbd>Alt+Shift+D</kbd> to pause/resume.</div></li>
+              <li><span className="flow-step">6</span><div>Use <strong>keyboard shortcuts</strong> across tabs: <kbd>{shortcutForCommand('read-selection') || 'not set'}</kbd> to read selected text or stop playback, and <kbd>{shortcutForCommand('pause-resume') || 'not set'}</kbd> to pause/resume (change them in Settings).</div></li>
             </ol>
           </div>
           <div className="credits-section">

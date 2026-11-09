@@ -1,7 +1,7 @@
 # VoiceDock
 
 A Chrome extension that reads selected text aloud with neural voices running on your own machine.
-Highlight text on any webpage, right-click it (or press `Alt+Shift+R`), and hear it read by a local engine: no cloud, no API keys, no text leaves your computer.
+Highlight text on any webpage, right-click it (or press `Alt+Shift+S`), and hear it read by a local engine: no cloud, no API keys, no text leaves your computer.
 
 VoiceDock has two local engines, chosen per profile:
 
@@ -201,12 +201,12 @@ See [servers/kokoro/README.md](servers/kokoro/README.md) for details, logs, and 
 
 ## Usage
 
-**Read text aloud:** highlight text, right-click, and choose **Read selected text aloud** (or press `Alt+Shift+R`).
-Stop with `Alt+Shift+R` again, the popup's **Stop** button, or right-click → **Stop reading**.
+**Read text aloud:** highlight text, right-click, and choose **Read selected text aloud** (or press `Alt+Shift+S`).
+Stop with `Alt+Shift+S` again, the popup's **Stop** button, or right-click → **Stop reading**.
 
 **Keyboard shortcuts:**
 
-- Read / stop selected text: `Alt+Shift+R`
+- Read / stop selected text: `Alt+Shift+S`
 - Pause / resume: `Alt+Shift+D`
 
 Rebind them at `chrome://extensions/shortcuts` (the Settings tab links there).
@@ -252,7 +252,7 @@ Switch profiles with the `‹` / `›` arrows in the popup, or use **Read as…*
 ## How it works
 
 ```
-Highlight text → right-click "Read selected text aloud" (or Alt+Shift+R)
+Highlight text → right-click "Read selected text aloud" (or Alt+Shift+S)
        ↓
 background.js: which engine does the active profile use?
        ↓                                   ↓
@@ -319,6 +319,10 @@ Requests that arrive together, or while the model is loading or being released, 
 
 **The right-click menu doesn't appear.**
 Make sure the extension is loaded and enabled at `chrome://extensions`.
+
+**The shortcut does nothing.**
+Open `chrome://extensions/shortcuts` and check that VoiceDock's shortcuts are set.
+Chrome leaves a suggested shortcut unassigned when it is already taken, which is why the read shortcut moved from `Alt+Shift+R` (Chrome no longer assigns it) to `Alt+Shift+S` in 1.2.
 
 **An engine shows Offline.**
 Piper: run `npm start` (or the tray) in `servers/piper/` and check that port 7477 is free.

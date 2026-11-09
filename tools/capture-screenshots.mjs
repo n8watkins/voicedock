@@ -66,7 +66,7 @@ const chromeShim = `
     ],
     favsOnly: false,
     fallback: true,
-    shortcuts: { read: 'Alt+Shift+R', pause: 'Alt+Shift+D', stop: 'Alt+Shift+E' },
+    shortcuts: { read: 'Alt+Shift+S', pause: 'Alt+Shift+D', stop: 'Alt+Shift+E' },
   };
 
   const originalFetch = window.fetch.bind(window);
