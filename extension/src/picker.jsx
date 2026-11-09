@@ -45,7 +45,10 @@ export function VoiceList({
   const [query, setQuery] = useState('');
   const [language, setLanguage] = useState('');
   const searchRef = useRef(null);
-  useEffect(() => { if (autoFocus) searchRef.current?.focus(); }, [autoFocus, engine]);
+  const usable = engineUsable(state);
+  // Focus the search box once it exists: on open, on another engine, and when
+  // an engine that was still being checked turns out ready.
+  useEffect(() => { if (autoFocus && usable) searchRef.current?.focus(); }, [autoFocus, engine, usable]);
   useEffect(() => { setQuery(''); setLanguage(''); }, [engine]);
 
   const engineRows = useMemo(() => rows.filter((r) => r.engine === engine), [rows, engine]);
@@ -55,7 +58,6 @@ export function VoiceList({
   const rest = visible.filter((r) => !isFav(r));
   const count = engineRows.filter((r) => r.id !== '').length;
   const languages = languagesIn(engineRows);
-  const usable = engineUsable(state);
 
   const row = (r, keyPrefix = '') => (
     <VoiceRow

@@ -35,8 +35,10 @@ test('popup: the voice picker shows engine pills, then that engine\'s voices', a
   await expect(picker.locator('section[aria-label="Favorites"] .vrow .nm')).toHaveText(['Heart']);
   await expect(picker.getByRole('button', { name: /^Davefx/ })).toHaveCount(0);
   await expect(picker.getByRole('searchbox', { name: 'Search voices' })).toHaveAttribute('placeholder', 'Search 6 Kokoro voices');
-  // The search box takes focus on open; wait for it so the shot is stable.
-  await expect(picker.getByRole('searchbox', { name: 'Search voices' })).toBeFocused();
+  // The search box takes focus on open. Whether the headless window itself
+  // has focus varies, and with it the focus ring, so the shot is taken blurred.
+  await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute('aria-label'))).toBe('Search voices');
+  await picker.getByRole('searchbox', { name: 'Search voices' }).evaluate((el) => el.blur());
   await page.locator('.pk-list').evaluate((el) => { el.scrollTop = 0; });
   await expect(shot(page)).toHaveScreenshot('popup-picker.png');
 });
