@@ -5,8 +5,8 @@ import {
   defaultProfile,
   describeProfileVoice,
   ENGINES,
-  engineBaseUrl,
   engineLabel,
+  engineUsable,
   ENGINE_IDS,
   favoritesFor,
   fmt,
@@ -25,6 +25,7 @@ import {
   runSettingsMigration,
   STATUS_SHORT,
   uuid,
+  voicesUrl,
 } from './shared.js';
 import { EngineStatus, Icon, useEngines } from './ui.jsx';
 
@@ -141,7 +142,7 @@ function OptionsApp() {
   // true when the engine answers, false when it doesn't, null while checking.
   const engineStatus = Object.fromEntries(LOCAL_ENGINE_IDS.map((id) => {
     const { state } = engines[id];
-    return [id, state === 'checking' ? null : state === 'ready' || state === 'starting'];
+    return [id, state === 'checking' ? null : engineUsable(state)];
   }));
   const [voicesEngine, setVoicesEngine] = useState('piper');
   const [createOpen, setCreateOpen] = useState(false);
@@ -223,12 +224,18 @@ function OptionsApp() {
   // already says what's wrong.
   async function fetchVoices(engine) {
     const online = await checkEngineStatus(engine);
-    if (!online) {
+    // Kokoro in standby: the Piper server lists its voices without starting it.
+    const url = online ? voicesUrl(engine, 'ready') : engine === 'kokoro' ? voicesUrl(engine, 'standby') : null;
+    if (!url) {
       setVoiceLoadError((prev) => ({ ...prev, [engine]: '' }));
       return;
     }
     try {
-      const res = await fetch(`${engineBaseUrl(engine)}/voices`);
+      const res = await fetch(url);
+      if (!online && !res.ok) {
+        setVoiceLoadError((prev) => ({ ...prev, [engine]: '' }));
+        return;
+      }
       if (!res.ok) throw new Error(`Server responded ${res.status}`);
       const data = await res.json();
       setVoicesByEngine((prev) => ({ ...prev, [engine]: Array.isArray(data.voices) ? data.voices : [] }));
@@ -239,6 +246,7 @@ function OptionsApp() {
       }
       setVoiceLoadError((prev) => ({ ...prev, [engine]: '' }));
     } catch (error) {
+      if (!online) return; // standby list unavailable: keep the last list quietly
       setVoicesByEngine((prev) => ({ ...prev, [engine]: [] }));
       if (engine === 'piper') {
         setVoiceSizes({});

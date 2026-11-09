@@ -7,7 +7,7 @@ import {
   APP_NAME,
   defaultProfile,
   engineLabel,
-  ENGINES,
+  engineUsable,
   favoritesFor,
   MAX_FAVORITES,
   MAX_PROFILES,
@@ -15,6 +15,7 @@ import {
   runSettingsMigration,
   sentenceLabel,
   STATUS_LABEL,
+  voicesUrl,
 } from './shared.js';
 import { EngineMono, EngineStatus, Icon, useEngines } from './ui.jsx';
 import { buildVoiceCatalog, ENGINE_ORDER, filterVoices, languagesIn, rowForProfile, voiceKey } from './voices.js';
@@ -109,20 +110,30 @@ function PopupApp() {
   }, []);
 
   // ── Each engine's voices, once it is ready ──────────────────────────────
-  const piperReady = engines.piper.state === 'ready' || engines.piper.state === 'starting';
-  const kokoroReady = engines.kokoro.state === 'ready' || engines.kokoro.state === 'starting';
+  const piperReady = engineUsable(engines.piper.state);
+  const kokoroReady = engineUsable(engines.kokoro.state);
+  const kokoroStandby = engines.kokoro.state === 'standby';
   useEffect(() => {
     let disposed = false;
     for (const [id, ready] of [['piper', piperReady], ['kokoro', kokoroReady]]) {
       if (!ready) continue;
-      fetch(`${ENGINES[id].baseUrl}/voices`).then((res) => (res.ok ? res.json() : null)).then((data) => {
+      fetch(voicesUrl(id, engines[id].state)).then((res) => (res.ok ? res.json() : null)).then((data) => {
         if (disposed || !data) return;
         setVoiceIds((prev) => ({ ...prev, [id]: Array.isArray(data.voices) ? data.voices : [] }));
         setDefaultVoiceByEngine((prev) => ({ ...prev, [id]: data.defaultVoice || '' }));
       }).catch(() => {});
     }
     return () => { disposed = true; };
-  }, [piperReady, kokoroReady]);
+  }, [piperReady, kokoroReady, kokoroStandby]);
+
+  // Warm up: opening the popup on a Kokoro profile starts Kokoro, so the read
+  // that usually follows doesn't wait for it.
+  const warmed = useRef(false);
+  useEffect(() => {
+    if (warmed.current || engine !== 'kokoro' || engineState !== 'standby') return;
+    warmed.current = true;
+    chrome.runtime.sendMessage({ type: 'warm-engine', engine: 'kokoro' }).catch?.(() => {});
+  }, [engine, engineState]);
 
   // ── Playback state, while the popup is open ─────────────────────────────
   useEffect(() => {
@@ -395,7 +406,7 @@ function NewProfileForm({ onSave, onClose }) {
 }
 
 function ReadingWith({ engine, state, row, onOpen }) {
-  const ready = state === 'ready' || state === 'starting';
+  const ready = engineUsable(state);
   const where = row.meta;
   return (
     <button type="button" className={`reading${state === 'stopped' || state === 'missing' ? ' warn' : ''}`} aria-haspopup="dialog" onClick={onOpen}>
@@ -430,9 +441,11 @@ function Transport({ reading, playback, shortcut, readHint, onRead, onTogglePaus
           <button type="button" className="play-big" aria-label="Read selection" onClick={onRead}><Icon name="play" /></button>
           <div className="tp-text">
             <b>Read selection</b>
-            {readHint
-              ? <span className="hint-warn">{readHint}</span>
-              : <span>Select text, then {shortcut ? <>press <Keys combo={shortcut} /></> : 'press play'}</span>}
+            {playback.starting
+              ? <span role="status">Starting {engineLabel(playback.starting)}, about 5 s</span>
+              : readHint
+                ? <span className="hint-warn">{readHint}</span>
+                : <span>Select text, then {shortcut ? <>press <Keys combo={shortcut} /></> : 'press play'}</span>}
           </div>
         </div>
       </div>
@@ -482,7 +495,7 @@ function VoicePicker({ rows, engines, favoritesByEngine, current, previewKey, pl
   const isFav = (row) => row.id !== '' && favoritesFor(favoritesByEngine, row.engine).includes(row.id);
   const visible = filterVoices(rows, { query, language });
   const filtering = Boolean(query.trim() || language);
-  const favorites = visible.filter((r) => isFav(r) && (engines[r.engine]?.state === 'ready' || engines[r.engine]?.state === 'starting'));
+  const favorites = visible.filter((r) => isFav(r) && engineUsable(engines[r.engine]?.state));
   const total = rows.filter((r) => !(r.engine === 'browser' && r.id === '')).length;
   const currentKey = voiceKey(current);
 
@@ -515,7 +528,7 @@ function VoicePicker({ rows, engines, favoritesByEngine, current, previewKey, pl
   for (const id of ENGINE_ORDER) {
     const state = engines[id]?.state || 'checking';
     const list = visible.filter((r) => r.engine === id);
-    const ready = state === 'ready' || state === 'starting';
+    const ready = engineUsable(state);
     if (filtering && ready && list.length === 0) continue;
     const count = rows.filter((r) => r.engine === id && r.id !== '').length;
     groups.push(

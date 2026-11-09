@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Start the VoiceDock Kokoro TTS server on 127.0.0.1:7478 (Piper owns 7477).
-# Run ./setup.sh once first. Override HOST/PORT via KOKORO_HOST / KOKORO_PORT.
+# You rarely need this: the Piper server starts Kokoro on demand. Run
+# ./setup.sh once first. Override HOST/PORT via KOKORO_HOST / KOKORO_PORT.
 set -euo pipefail
 cd "$(dirname "$0")"
 
