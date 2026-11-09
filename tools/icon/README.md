@@ -14,3 +14,8 @@ The PNGs in `extension/icons/` are rendered from these files with any SVG raster
 | `icon32.png` | `voicedock-32.svg` | 32x32, full bleed |
 | `icon48.png` | `voicedock.svg` | 48x48, full bleed |
 | `icon128.png` | `voicedock.svg` | 96x96 centred in 128x128 (16 px transparent padding, as the Chrome Web Store asks) |
+
+## Tray icons
+
+The VoiceDock tray (`servers/piper/tray`) shows the same mark, with the Piper server's state on its dock line: green when Piper answers, grey with dimmed bars when it doesn't.
+`node tools/icon/render-tray-icons.mjs` renders `servers/piper/tray/assets/online|offline.ico` (16 to 256 px, PNG entries) and `.png` (128 px) from these SVGs with Playwright's Chromium.

@@ -46,7 +46,7 @@ function PopupApp() {
     let disposed = false;
     async function init() {
       setVersion(`v${chrome.runtime.getManifest().version}`);
-      // Upgrades settings saved by Piper TTS 1.0.x before reading them.
+      // Upgrades settings saved by 1.0.x before reading them.
       const stored = await runSettingsMigration(chrome.storage.local);
       let nextProfiles = Array.isArray(stored.profiles) ? stored.profiles.map(normalizeProfile) : [];
       let nextActiveId = stored.activeId || '';

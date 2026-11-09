@@ -288,7 +288,7 @@ function OptionsApp() {
     async function init() {
       setVersion(`v${chrome.runtime.getManifest().version}`);
 
-      // Upgrades settings saved by Piper TTS 1.0.x (see migrateSettings).
+      // Upgrades settings saved by 1.0.x (see migrateSettings).
       const stored = await runSettingsMigration(chrome.storage.local);
 
       let nextProfiles = Array.isArray(stored.profiles) ? stored.profiles.map(normalizeProfile) : [];
@@ -1006,7 +1006,7 @@ function OptionsApp() {
           <div className="credits-section">
             <h4 className="credits-section-title">Open Source</h4>
             <div className="credits-deps">
-              <a className="dep-card" href="https://github.com/rhasspy/piper" target="_blank"><span className="dep-name">Piper TTS</span><span className="dep-desc">Fast, local neural text-to-speech by rhasspy</span></a>
+              <a className="dep-card" href="https://github.com/rhasspy/piper" target="_blank"><span className="dep-name">Piper</span><span className="dep-desc">Fast, local neural text-to-speech by rhasspy, now OHF-Voice</span></a>
               <a className="dep-card" href="https://huggingface.co/rhasspy/piper-voices/tree/main/en" target="_blank"><span className="dep-name">Piper Voices</span><span className="dep-desc">Free English voice models on HuggingFace</span></a>
               <a className="dep-card" href="https://huggingface.co/hexgrad/Kokoro-82M" target="_blank"><span className="dep-name">Kokoro-82M</span><span className="dep-desc">Natural-sounding open-weight TTS model by hexgrad (Apache 2.0)</span></a>
               <a className="dep-card" href="https://github.com/thewh1teagle/kokoro-onnx" target="_blank"><span className="dep-name">kokoro-onnx</span><span className="dep-desc">Runs Kokoro with ONNX Runtime, by thewh1teagle</span></a>

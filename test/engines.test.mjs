@@ -1,5 +1,5 @@
 // Engine selection, profile normalization and the settings migration from
-// Piper TTS 1.0.x (pure helpers in extension/src/shared.js).
+// 1.0.x (pure helpers in extension/src/shared.js).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -107,7 +107,7 @@ test('describeProfileVoice names the engine', () => {
   assert.equal(describeProfileVoice({ engine: 'kokoro', voice: '' }), 'Kokoro · default voice');
 });
 
-test('migrateSettings upgrades Piper TTS 1.0.x settings', () => {
+test('migrateSettings upgrades 1.0.x settings', () => {
   const v1 = {
     profiles: [
       { id: 'default', name: 'Default', voice: '', rate: 1, volume: 1 },

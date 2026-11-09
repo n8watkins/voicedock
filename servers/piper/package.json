@@ -1,5 +1,5 @@
 {
-  "name": "piper-tts-server",
+  "name": "voicedock-piper-server",
   "version": "1.0.0",
   "description": "VoiceDock Piper server: a local Express server that calls Piper and returns WAV audio",
   "main": "server.js",

@@ -16,8 +16,8 @@
 //
 //   node tray/voicedock-tray.js
 //
-// Was "Piper TTS Tray" (tray/piper-tray.js) up to VoiceDock 1.1; the old
-// "Piper TTS Tray" startup entry is replaced by "VoiceDock Tray" on first run.
+// Had an older name (tray/piper-tray.js) up to VoiceDock 1.1; that tray's
+// startup entry is replaced by "VoiceDock Tray" on first run.
 //
 // Robustness: async (non-blocking) health checks, a single-instance lockfile
 // with stale-lock recovery, graceful shutdown, and modest crash supervision.
@@ -34,7 +34,7 @@ const TRAY_DIR = __dirname;
 const SERVER_DIR = path.dirname(TRAY_DIR); // .../servers/piper
 const ASSETS = path.join(TRAY_DIR, 'assets');
 const LOG_DIR = path.join(SERVER_DIR, 'logs');
-const PID_FILE = path.join(LOG_DIR, 'piper-tts-server.pid');
+const PID_FILES = core.pidFiles(LOG_DIR); // current name, plus the 1.1 one for one release
 const LOCK_FILE = path.join(LOG_DIR, 'voicedock-tray.lock');
 const TRAY_LOG = path.join(LOG_DIR, 'voicedock-tray.log');
 const APP_DIR = core.appDataDir();
@@ -102,10 +102,15 @@ const ICON_OFFLINE = iconB64('offline');
 // ─── Piper server lifecycle ──────────────────────────────────────────────────
 // The pid recorded for the server a tray started (this run or an earlier one).
 const filePid = () => {
-  try {
-    const pid = parseInt(fs.readFileSync(PID_FILE, 'utf8').trim(), 10);
-    return pid && isAlive(pid) ? pid : null;
-  } catch { return null; }
+  const pid = core.readRecordedPid(PID_FILES);
+  return pid && isAlive(pid) ? pid : null;
+};
+const forgetPid = (onlyPid = null) => {
+  for (const file of [PID_FILES.current, PID_FILES.legacy]) {
+    try {
+      if (onlyPid === null || parseInt(fs.readFileSync(file, 'utf8').trim(), 10) === onlyPid) fs.unlinkSync(file);
+    } catch { /* ignore */ }
+  }
 };
 // The server child this tray run spawned, while it runs (cleared on exit).
 let ownChild = null;
@@ -117,18 +122,19 @@ const managedPid = (health) => {
   return core.isManagedServer({ filePid: pid, health, ownChildAlive }) ? (ownChildAlive ? ownChild.pid : pid) : null;
 };
 function startServer() {
-  const out = fs.openSync(path.join(LOG_DIR, 'piper-tts-server.log'), 'a');
+  const out = fs.openSync(path.join(LOG_DIR, 'voicedock-piper.log'), 'a');
   const child = spawn(process.execPath, ['server.js'], {
     // windowsHide hides the console window a detached child would otherwise
     // pop up on Windows.
     cwd: SERVER_DIR, detached: true, windowsHide: true, stdio: ['ignore', out, out],
   });
-  try { fs.writeFileSync(PID_FILE, String(child.pid)); } catch { /* ignore */ }
+  forgetPid();
+  try { fs.writeFileSync(PID_FILES.current, String(child.pid)); } catch { /* ignore */ }
   ownChild = child;
   child.once('exit', (code) => {
     if (ownChild === child) ownChild = null;
     // Forget the pid as soon as it is gone, before Windows can reuse it.
-    try { if (parseInt(fs.readFileSync(PID_FILE, 'utf8').trim(), 10) === child.pid) fs.unlinkSync(PID_FILE); } catch { /* ignore */ }
+    forgetPid(child.pid);
     log(`The Piper server exited: pid ${child.pid}, code ${code}`);
   });
   child.unref();
@@ -139,7 +145,7 @@ async function stopServer() {
   const pid = managedPid(await core.fetchHealth(HOST, PORT));
   if (pid) { try { process.kill(pid); log(`Stopped the Piper server: pid ${pid}`); } catch { /* ignore */ } }
   else if (filePid()) log('Not stopping: the recorded pid is not the Piper server that answers (pid reused, or the server is gone)');
-  try { fs.unlinkSync(PID_FILE); } catch { /* ignore */ }
+  forgetPid();
 }
 // Is something already listening on the port? (Used so a restart waits for the
 // old process to release it; otherwise the new server hits EADDRINUSE.)
@@ -224,7 +230,7 @@ function removeAutostartFile(file) {
   try { fs.unlinkSync(file); } catch { /* ignore */ }
 }
 
-// The tray was "Piper TTS Tray" up to VoiceDock 1.1. If its startup entry is
+// The tray had an older name up to VoiceDock 1.1. If its startup entry is
 // still there, replace it with the VoiceDock one (keeping launch-at-login on).
 function migrateLegacyAutostart() {
   if (!fs.existsSync(AUTOSTART.legacy)) return false;

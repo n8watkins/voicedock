@@ -5,8 +5,8 @@ $ErrorActionPreference = "Stop"
 $Launcher = Join-Path $PSScriptRoot "start-voicedock-tray.vbs"
 $StartupDir = [Environment]::GetFolderPath([Environment+SpecialFolder]::Startup)
 $ShortcutPath = Join-Path $StartupDir "VoiceDock Tray.lnk"
-# The tray was "Piper TTS Tray" up to VoiceDock 1.1.
-$LegacyShortcutPath = Join-Path $StartupDir "Piper TTS Tray.lnk"
+# The tray had an older name, and shortcut, up to VoiceDock 1.1.
+$LegacyShortcutPath = Join-Path $StartupDir "Piper TTS Tray.lnk" # legacy-name
 
 if (-not (Test-Path $Launcher)) {
   throw "Tray launcher not found: $Launcher"
@@ -26,6 +26,6 @@ Write-Host $ShortcutPath
 
 if (Test-Path $LegacyShortcutPath) {
   Remove-Item -LiteralPath $LegacyShortcutPath -Force
-  Write-Host "Removed the old Piper TTS Tray shortcut:"
+  Write-Host "Removed the old tray shortcut from before VoiceDock 1.1:"
   Write-Host $LegacyShortcutPath
 }

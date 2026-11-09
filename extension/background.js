@@ -85,7 +85,7 @@ async function setStopMenuVisible(visible) {
   }
 }
 
-// Settings saved by Piper TTS 1.0.x (profiles without an engine, the single
+// Settings saved by 1.0.x, before the VoiceDock name (profiles without an engine, the single
 // favorites list, fallbackToBrowser) are upgraded in place; see
 // migrateSettings in src/shared.js. Runs on install/update and on browser
 // startup, and is idempotent.

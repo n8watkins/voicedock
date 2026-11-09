@@ -57,7 +57,7 @@ function download(url, dest, redirects = 6) {
       fs.rmSync(dest, { force: true });
       reject(err);
     });
-    https.get(url, { headers: { 'User-Agent': 'piper-tts-setup' } }, (res) => {
+    https.get(url, { headers: { 'User-Agent': 'voicedock-setup' } }, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         file.close();
         fs.rmSync(dest, { force: true });

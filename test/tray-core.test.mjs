@@ -65,17 +65,17 @@ test('settings default to history off and survive bad values', () => {
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('app data and autostart paths per OS, with the old Piper TTS entry', () => {
+test('app data and autostart paths per OS, with the 1.0 tray entry', () => {
   assert.match(core.appDataDir('win32', { APPDATA: 'R' }, 'H'), /^R.VoiceDock$/);
   assert.equal(core.appDataDir('linux', {}, '/home/u'), '/home/u/.config/voicedock');
   assert.equal(core.appDataDir('linux', { XDG_CONFIG_HOME: '/x' }, '/home/u'), '/x/voicedock');
   assert.equal(core.appDataDir('darwin', {}, '/Users/u'), '/Users/u/Library/Application Support/VoiceDock');
   const win = core.autostartPaths('win32', { APPDATA: 'A' }, 'H');
   assert.match(win.current, /Startup.VoiceDock Tray\.lnk$/);
-  assert.match(win.legacy, /Startup.Piper TTS Tray\.lnk$/);
+  assert.match(win.legacy, /Startup.Piper TTS Tray\.lnk$/); // legacy-name
   const linux = core.autostartPaths('linux', {}, '/home/u');
   assert.equal(linux.current, '/home/u/.config/autostart/voicedock-tray.desktop');
-  assert.equal(linux.legacy, '/home/u/.config/autostart/piper-tts-tray.desktop');
+  assert.equal(linux.legacy, '/home/u/.config/autostart/piper-tts-tray.desktop'); // legacy-name
 });
 
 test('fetchHealth parses JSON and treats errors, non-2xx and timeouts as offline', async () => {
@@ -103,4 +103,20 @@ test('fetchHealth parses JSON and treats errors, non-2xx and timeouts as offline
     server.close();
   }
   assert.equal(await core.fetchHealth('127.0.0.1', port), null, 'nothing listening');
+});
+
+test('the recorded Piper pid is read from the new pid file, then the 1.1 one', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'vd-pid-'));
+  try {
+    const files = core.pidFiles(dir);
+    assert.match(files.current, /voicedock-piper\.pid$/);
+    assert.match(files.legacy, /piper-tts-server\.pid$/); // legacy-name
+    assert.equal(core.readRecordedPid(files), null, 'no pid file');
+    writeFileSync(files.legacy, '4242\n');
+    assert.equal(core.readRecordedPid(files), 4242, 'a server a 1.1 tray started');
+    writeFileSync(files.current, '77');
+    assert.equal(core.readRecordedPid(files), 77, 'the new file wins');
+    writeFileSync(files.current, 'junk');
+    assert.equal(core.readRecordedPid(files), 4242, 'an unreadable new file falls back');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

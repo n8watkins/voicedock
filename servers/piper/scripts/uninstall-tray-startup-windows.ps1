@@ -1,9 +1,9 @@
 $ErrorActionPreference = "Stop"
 
 $StartupDir = [Environment]::GetFolderPath([Environment+SpecialFolder]::Startup)
-# "Piper TTS Tray.lnk" is the shortcut's name from before VoiceDock 1.1.
+# The second name is the shortcut's name from before VoiceDock 1.1.
 $removed = $false
-foreach ($name in @("VoiceDock Tray.lnk", "Piper TTS Tray.lnk")) {
+foreach ($name in @("VoiceDock Tray.lnk", "Piper TTS Tray.lnk")) { # legacy-name
   $ShortcutPath = Join-Path $StartupDir $name
   if (Test-Path $ShortcutPath) {
     Remove-Item -LiteralPath $ShortcutPath -Force

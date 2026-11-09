@@ -123,22 +123,43 @@ function isManagedServer({ filePid = null, health = null, ownChildAlive = false 
   return Number(health.pid) === Number(filePid);
 }
 
-/** Where the "Launch at login" entry lives, and where the old Piper TTS one lived. */
+/**
+ * The Piper server's pid file, and its name before VoiceDock 1.2. A server a
+ * 1.1 tray started still has the old file, so both are read for one release.
+ */
+const PID_FILE_NAME = 'voicedock-piper.pid';
+const LEGACY_PID_FILE_NAME = 'piper-tts-server.pid'; // legacy-name: read for one release
+function pidFiles(logDir) {
+  return { current: path.join(logDir, PID_FILE_NAME), legacy: path.join(logDir, LEGACY_PID_FILE_NAME) };
+}
+
+/** The recorded pid (current file first, then the legacy one), or null. */
+function readRecordedPid(files, readFile = (file) => fs.readFileSync(file, 'utf8')) {
+  for (const file of [files.current, files.legacy]) {
+    try {
+      const pid = parseInt(readFile(file).trim(), 10);
+      if (pid > 0) return pid;
+    } catch { /* missing or unreadable: try the next */ }
+  }
+  return null;
+}
+
+/** Where the "Launch at login" entry lives, and where the 1.0 tray's one lived. */
 function autostartPaths(platform = process.platform, env = process.env, home = os.homedir()) {
   if (platform === 'win32') {
     const dir = path.join(env.APPDATA || path.join(home, 'AppData', 'Roaming'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup');
-    return { current: path.join(dir, 'VoiceDock Tray.lnk'), legacy: path.join(dir, 'Piper TTS Tray.lnk') };
+    return { current: path.join(dir, 'VoiceDock Tray.lnk'), legacy: path.join(dir, 'Piper TTS Tray.lnk') }; // legacy-name
   }
   if (platform === 'darwin') {
     const dir = path.join(home, 'Library', 'LaunchAgents');
-    return { current: path.join(dir, 'com.voicedock.tray.plist'), legacy: path.join(dir, 'com.n8.pipertts.tray.plist') };
+    return { current: path.join(dir, 'com.voicedock.tray.plist'), legacy: path.join(dir, 'com.n8.pipertts.tray.plist') }; // legacy-name
   }
   const dir = path.join(env.XDG_CONFIG_HOME || path.join(home, '.config'), 'autostart');
-  return { current: path.join(dir, 'voicedock-tray.desktop'), legacy: path.join(dir, 'piper-tts-tray.desktop') };
+  return { current: path.join(dir, 'voicedock-tray.desktop'), legacy: path.join(dir, 'piper-tts-tray.desktop') }; // legacy-name
 }
 
 module.exports = {
   KOKORO_HOST, KOKORO_PORT, DEFAULT_SETTINGS, appDataDir, loadSettings, saveSettings, fetchHealth,
   piperMemoryText, kokoroMemoryText, piperStatusText, kokoroStatusText, tooltipText, autostartPaths,
-  isManagedServer,
+  isManagedServer, pidFiles, readRecordedPid,
 };

@@ -113,7 +113,7 @@ Tray files:
 | Memory history and `memory-report.html` | `memory\` in that folder |
 | Tray log | `servers/piper/logs/voicedock-tray.log` |
 
-> The tray was called **Piper TTS Tray** up to VoiceDock 1.1, with a `Piper TTS Tray` startup shortcut.
+> The tray was called **Piper TTS Tray** up to VoiceDock 1.1, with a `Piper TTS Tray` startup shortcut. <!-- legacy-name -->
 > On its first start the VoiceDock tray replaces that shortcut with `VoiceDock Tray` (keeping launch at login on), and the old launchers `scripts/start-piper-tray.vbs` and `.bat` still work: they start the VoiceDock tray.
 > The older PowerShell-only tray (`scripts/piper-tray-windows.ps1`) is gone; the Node tray replaced it.
 

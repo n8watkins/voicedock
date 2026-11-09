@@ -3,6 +3,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync, chmod
 import http from 'http';
 import { dirname, join, normalize, resolve } from 'path';
 import { fileURLToPath } from 'url';
+import { envSetting } from './env.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, '..');
@@ -10,20 +11,20 @@ const extensionRoot = join(repoRoot, 'extension');
 const screenshotDir = join(repoRoot, 'screenshots');
 const manifest = JSON.parse(readFileSync(join(extensionRoot, 'manifest.json'), 'utf8'));
 
-const windowsUser = process.env.PIPER_TTS_WINDOWS_USER || 'natha';
+const windowsUser = envSetting('WINDOWS_USER') || 'natha';
 const windowsTempRoot = `/mnt/c/Users/${windowsUser}/AppData/Local/Temp`;
 const windowsTemp = `C:/Users/${windowsUser}/AppData/Local/Temp`;
-const windowsPuppeteerDir = `${windowsTemp}/piper-tts-puppeteer-core`;
-const wslPuppeteerDir = `${windowsTempRoot}/piper-tts-puppeteer-core`;
-const windowsOutputDir = `${windowsTemp}/piper-tts-screenshot-output`;
-const wslOutputDir = `${windowsTempRoot}/piper-tts-screenshot-output`;
-const windowsController = `${windowsTemp}/piper-tts-capture-screenshots.cjs`;
-const wslController = `${windowsTempRoot}/piper-tts-capture-screenshots.cjs`;
-const chromeProfile = `${windowsTemp}/piper-tts-screenshot-chrome-${process.pid}`;
-const chromeDebugPort = Number(process.env.PIPER_TTS_CHROME_DEBUG_PORT || (9350 + (process.pid % 500)));
-const screenshotServerPort = Number(process.env.PIPER_TTS_SCREENSHOT_SERVER_PORT || 9488);
-const chromePath = process.env.PIPER_TTS_CHROME_PATH || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
-const windowsNode = process.env.PIPER_TTS_WINDOWS_NODE || '/mnt/c/Program Files/nodejs/node.exe';
+const windowsPuppeteerDir = `${windowsTemp}/voicedock-puppeteer-core`;
+const wslPuppeteerDir = `${windowsTempRoot}/voicedock-puppeteer-core`;
+const windowsOutputDir = `${windowsTemp}/voicedock-screenshot-output`;
+const wslOutputDir = `${windowsTempRoot}/voicedock-screenshot-output`;
+const windowsController = `${windowsTemp}/voicedock-capture-screenshots.cjs`;
+const wslController = `${windowsTempRoot}/voicedock-capture-screenshots.cjs`;
+const chromeProfile = `${windowsTemp}/voicedock-screenshot-chrome-${process.pid}`;
+const chromeDebugPort = Number(envSetting('CHROME_DEBUG_PORT') || (9350 + (process.pid % 500)));
+const screenshotServerPort = Number(envSetting('SCREENSHOT_SERVER_PORT') || 9488);
+const chromePath = envSetting('CHROME_PATH') || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
+const windowsNode = envSetting('WINDOWS_NODE') || '/mnt/c/Program Files/nodejs/node.exe';
 
 const sampleProfiles = [
   { id: 'article', name: 'Articles', engine: 'piper', voice: 'en_US-ryan-high.onnx', rate: 1.2, volume: 1.1 },
@@ -96,7 +97,7 @@ const chromeShim = `
           voices,
           defaultVoice: 'en_US-ryan-high.onnx',
           sizes: voiceSizes,
-          voiceDir: 'C:\\\\Users\\\\${windowsUser}\\\\Projects\\\\Tools\\\\piper-tts\\\\servers\\\\piper\\\\piper\\\\voices',
+          voiceDir: 'C:\\\\Users\\\\${windowsUser}\\\\Projects\\\\Tools\\\\voicedock\\\\servers\\\\piper\\\\piper\\\\voices',
         }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
