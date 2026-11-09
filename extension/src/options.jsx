@@ -939,7 +939,7 @@ const CREDITS = [
   { name: 'Piper voices', desc: 'Voice models, on Hugging Face', href: 'https://huggingface.co/rhasspy/piper-voices', icon: 'mic' },
   { name: 'Kokoro-82M', desc: 'Natural open-weight voices, by hexgrad (Apache 2.0)', href: 'https://huggingface.co/hexgrad/Kokoro-82M', mono: 'kokoro' },
   { name: 'kokoro-onnx', desc: 'Runs Kokoro on ONNX Runtime, by thewh1teagle', href: 'https://github.com/thewh1teagle/kokoro-onnx', icon: 'cpu' },
-  { name: 'Pocket TTS', desc: 'Natural English voices on the CPU, by Kyutai. Program MIT, model CC-BY-4.0; voices carry their own licenses. Kyutai forbids cloning or imitating a voice without consent.', href: 'https://github.com/kyutai-labs/pocket-tts', mono: 'pocket' },
+  { name: 'Pocket TTS', desc: 'English voices on the CPU, by Kyutai (MIT, model CC-BY-4.0). No cloning a voice without consent.', href: 'https://github.com/kyutai-labs/pocket-tts', mono: 'pocket' },
   { name: 'uv', desc: 'Installs Kokoro\'s Python, by Astral', href: 'https://github.com/astral-sh/uv', icon: 'package' },
   { name: 'Lucide', desc: 'The icon style (ISC)', href: 'https://lucide.dev', icon: 'shapes' },
   { name: 'Onest, Bricolage Grotesque', desc: 'Typefaces (SIL OFL)', href: 'https://github.com/googlefonts/onest', icon: 'type' },
@@ -1008,6 +1008,7 @@ function EngineHistory({ hub }) {
         <Icon name="clock" size="s" />
         <span>Engine history</span>
         {result?.reachable && <span className="history-count">({events.length})</span>}
+        <Icon name="chevron-down" size="s" className="history-chevron" />
       </summary>
       <div className="history-body">
         <div className="history-head">
