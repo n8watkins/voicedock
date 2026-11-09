@@ -19,7 +19,8 @@ import {
   MAX_PROFILES,
   normalizeProfile,
   STATUS_LABEL,
-  PIPER_BASE_URL,
+  HUB_URL,
+  engineState,
   qualityFromFilename,
   runSettingsMigration,
   uuid,
@@ -170,17 +171,17 @@ function OptionsApp() {
   }
 
   async function checkEngineStatus(engine) {
-    const health = await recheck();
-    return !!health[engine];
+    const hub = await recheck();
+    return { hub, online: engineUsable(engineState(engine, hub, true)) };
   }
 
   // Loads one engine's voice list. An offline engine keeps its last list (so
   // saved profile voices still show) and reports no error: the offline banner
   // already says what's wrong.
   async function fetchVoices(engine) {
-    const online = await checkEngineStatus(engine);
-    // Kokoro in standby: the Piper server lists its voices without starting it.
-    const url = online ? voicesUrl(engine, 'ready') : engine === 'kokoro' ? voicesUrl(engine, 'standby') : null;
+    const { hub, online } = await checkEngineStatus(engine);
+    // The hub lists Kokoro's voices without starting it.
+    const url = hub.reachable ? voicesUrl(engine) : null;
     if (!url) {
       setVoiceLoadError((prev) => ({ ...prev, [engine]: '' }));
       return;
@@ -446,7 +447,7 @@ function OptionsApp() {
     const confirmed = await showConfirm(`Delete "${formatVoiceName(filename)}" from disk? This can't be undone.`);
     if (!confirmed) return;
     try {
-      const res = await fetch(`${PIPER_BASE_URL}/voices/${encodeURIComponent(filename)}`, { method: 'DELETE' });
+      const res = await fetch(`${HUB_URL}/voices/${encodeURIComponent(filename)}`, { method: 'DELETE' });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error || `Server responded ${res.status}`);
@@ -473,7 +474,7 @@ function OptionsApp() {
   }
 
   function openVoicesFolder() {
-    fetch(`${PIPER_BASE_URL}/voices/open-folder`, { method: 'POST' }).catch(() => {});
+    fetch(`${HUB_URL}/voices/open-folder`, { method: 'POST' }).catch(() => {});
   }
 
   const viewFavorites = favoritesFor(favoritesByEngine, voicesEngine);
@@ -570,7 +571,7 @@ function OptionsApp() {
         </nav>
         <div className="side-engines" aria-label="Engines">
           {LOCAL_ENGINE_IDS.map((engine) => (
-            <span key={engine} className="header-engine" title={ENGINES[engine].baseUrl}>
+            <span key={engine} className="header-engine" title={engines[engine].detail || undefined}>
               <span>{engineLabel(engine)}</span> <EngineStatus state={engines[engine].state} variant="compact" short />
             </span>
           ))}
@@ -798,7 +799,8 @@ function OptionsApp() {
                 key={engine}
                 engine={engine}
                 state={engines[engine].state}
-                health={engines[engine].health}
+                entry={engines[engine].entry}
+                detail={engines[engine].detail}
                 onCheck={() => fetchVoices(engine)}
                 onSetup={() => { setSetupEngine(engine); document.getElementById('setup')?.scrollIntoView({ block: 'start', behavior: 'smooth' }); }}
               />
@@ -849,7 +851,7 @@ function OptionsApp() {
           <div className="panel-toolbar"><h2 className="panel-heading">How it works</h2></div>
           <ol className="how-it-works-list">
             <li><span className="flow-step"><Icon name="type" size="s" /></span><div><strong>Select text</strong>, then right-click <em>Read selection</em> or press <kbd>{readShortcut || 'the shortcut'}</kbd>.</div></li>
-            <li><span className="flow-step"><Icon name="cpu" size="s" /></span><div>Your profile's engine speaks it on this computer: <strong>Piper</strong> at <code>127.0.0.1:7477</code>, <strong>Kokoro</strong> at <code>127.0.0.1:7478</code>.</div></li>
+            <li><span className="flow-step"><Icon name="cpu" size="s" /></span><div>Your profile's engine speaks it on this computer, through VoiceDock's local server at <code>127.0.0.1:7477</code>. It starts <strong>Kokoro</strong> when you read with it and stops it when you don't.</div></li>
             <li><span className="flow-step"><Icon name="wave" size="s" /></span><div>It reads <strong>sentence by sentence</strong>; the player bar on the page pauses, skips and stops.</div></li>
             <li><span className="flow-step"><Icon name="shield" size="s" /></span><div>An engine that can't read falls back to the <strong>Basic voice</strong> (Settings), and the page says so.</div></li>
             <li><span className="flow-step"><Icon name="globe" size="s" /></span><div><strong>Nothing leaves your machine</strong>: no cloud, no account, no API key.</div></li>
@@ -895,7 +897,7 @@ const CREDITS = [
 ];
 
 // One engine at a glance: status, address, memory, and the button that matters.
-function EngineCard({ engine, state, health, onCheck, onSetup }) {
+function EngineCard({ engine, state, entry, detail, onCheck, onSetup }) {
   const facts = ENGINES[engine].facts;
   const usable = engineUsable(state);
   return (
@@ -908,8 +910,8 @@ function EngineCard({ engine, state, health, onCheck, onSetup }) {
         </div>
       </div>
       <dl className="engine-facts">
-        <dt>Address</dt><dd><code>{ENGINES[engine].baseUrl.replace('http://', '')}</code></dd>
-        <dt>Memory</dt><dd>{health?.rssMb ? `${Math.round(health.rssMb)} MB now · ` : ''}{facts.memory}</dd>
+        <dt>Now</dt><dd>{detail || STATUS_LABEL[state]}</dd>
+        <dt>Memory</dt><dd>{entry?.rssMb ? `${Math.round(entry.rssMb)} MB now · ` : ''}{facts.memory}</dd>
         <dt>Download</dt><dd>{facts.download}</dd>
       </dl>
       <div className="engine-card-actions">

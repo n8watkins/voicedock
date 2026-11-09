@@ -1,5 +1,5 @@
 // End-to-end tests: the unpacked extension in Chromium against fake engines on
-// ports 7477 and 7478 (e2e/fake-engines.mjs). Screenshot baselines exist for
+// port 7477 (e2e/fake-engines.mjs). Screenshot baselines exist for
 // light and dark at 1x and 2x.
 //
 //   npm run test:e2e             (CI, or a machine with nothing on those ports)

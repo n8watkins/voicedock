@@ -6,12 +6,11 @@ import assert from 'node:assert/strict';
 import {
   ENGINES,
   ENGINE_IDS,
-  KOKORO_BASE_URL,
-  PIPER_BASE_URL,
+  HUB_URL,
+  TTS_URL,
   SETTINGS_VERSION,
   chooseEngine,
   describeProfileVoice,
-  engineBaseUrl,
   favoritesFor,
   formatVoiceName,
   inferEngine,
@@ -21,14 +20,12 @@ import {
   runSettingsMigration,
 } from '../extension/src/shared.js';
 
-test('engines and their ports', () => {
+test('every local engine is reached through the hub', () => {
   assert.deepEqual(ENGINE_IDS, ['piper', 'kokoro', 'browser']);
-  assert.equal(PIPER_BASE_URL, 'http://127.0.0.1:7477');
-  assert.equal(KOKORO_BASE_URL, 'http://127.0.0.1:7478');
-  assert.equal(engineBaseUrl('kokoro'), KOKORO_BASE_URL);
-  assert.equal(engineBaseUrl('browser'), null);
-  assert.equal(engineBaseUrl('nope'), null);
+  assert.equal(HUB_URL, 'http://127.0.0.1:7477');
+  assert.equal(TTS_URL, 'http://127.0.0.1:7477/tts');
   assert.equal(ENGINES.browser.local, false);
+  for (const engine of Object.values(ENGINES)) assert.equal('baseUrl' in engine, false, 'no per-engine address');
 });
 
 test('inferEngine reads old voice-only profiles', () => {
@@ -76,16 +73,18 @@ test('chooseEngine uses the profile engine when it is online', () => {
 test('chooseEngine falls back to the browser voice when the engine is down', () => {
   const kokoro = { id: 'k', name: 'K', engine: 'kokoro', voice: 'bf_emma' };
   assert.deepEqual(chooseEngine(kokoro, { kokoro: false, piper: true }), {
-    engine: 'browser', voice: '', fellBack: true, reason: 'Kokoro is offline',
+    engine: 'browser', voice: '', fellBack: true, reason: 'Kokoro is not running',
   });
-  // Unknown status counts as offline.
+  // Unknown status counts as not running.
   assert.equal(chooseEngine(kokoro, {}).engine, 'browser');
+  // The caller knows why: the hub said it is not set up.
+  assert.equal(chooseEngine(kokoro, {}, true, { kokoro: 'Kokoro is not set up' }).reason, 'Kokoro is not set up');
 });
 
 test('chooseEngine stays silent when the engine is down and fallback is off', () => {
   const piper = { id: 'p', name: 'P', engine: 'piper', voice: '' };
   assert.deepEqual(chooseEngine(piper, { piper: false }, false), {
-    engine: null, voice: '', fellBack: false, reason: 'Piper is offline',
+    engine: null, voice: '', fellBack: false, reason: 'Piper is not running',
   });
 });
 

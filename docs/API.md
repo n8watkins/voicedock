@@ -22,7 +22,7 @@ The extension expects the defaults.
   Any other browser origin gets `403` on every route, including the `OPTIONS` preflight, so a web page can't use your local engine.
 - **CORS.** For an allowed extension origin the server echoes it in `Access-Control-Allow-Origin` (with `Vary: Origin`).
   Preflight answers allow `GET, POST, OPTIONS` (Piper also allows `DELETE`) and the `Content-Type` header.
-  The extension also lists both addresses in `host_permissions`, so it works even with an older server that sends no CORS headers.
+  The extension lists the hub's address in `host_permissions`, so it works even with an older server that sends no CORS headers.
 - **JSON everywhere except audio.** Every response that isn't audio is JSON, including errors and unknown routes.
 - **Body limit.** Request bodies are limited to 1 MB.
 
@@ -171,7 +171,7 @@ Same origin rule as every route.
 | `GET` | `/engines/:id/voices` | An engine's voices. Kokoro's come from its voices file, so this never starts it; `404` when it isn't set up. |
 | `POST` | `/presence` | The extension's heartbeat: `{ "extensionVersion", "activeEngine", "reading" }`. Sent on browser start, every minute, when the popup opens and on every read. |
 | `GET` | `/hub/events` | The last 100 engine events: starts with their time to ready, stops with the reason, refusals, pressure changes. |
-| `POST` | `/engines/kokoro/start`, `/engines/kokoro/stop` | The 1.1 extension's routes, kept for one release. |
+| `POST` | `/engines/kokoro/start` | The 1.1 extension's route, kept for one release. There is no stop route here: only N8 Tray stops an engine (with the token), or the hub's own policy. |
 
 | `state` | Means | The extension shows |
 | --- | --- | --- |

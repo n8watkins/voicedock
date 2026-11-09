@@ -5,7 +5,7 @@ import { expect, onlyOnce, test } from './fixtures.mjs';
 const piperRow = (page) => page.locator('.header-engine', { hasText: 'Piper' });
 const kokoroRow = (page) => page.locator('.header-engine', { hasText: 'Kokoro' });
 
-test('engines read Ready, Starting, Not running or Not installed', async ({ engines, openOptions, seed }, testInfo) => {
+test('engines read Ready, Starting, Not running or Not installed', async ({ engines, openOptions }, testInfo) => {
   test.skip(onlyOnce(testInfo));
   engines.kokoro.set('stopped');
   let page = await openOptions('settings');
@@ -13,8 +13,8 @@ test('engines read Ready, Starting, Not running or Not installed', async ({ engi
   await expect(kokoroRow(page).locator('.vd-status')).toHaveText('Not installed');
   await page.close();
 
-  // Kokoro answered once (on an earlier day), and is off now.
-  await seed({ engineSeen: { kokoro: '2026-11-01T09:00:00.000Z' } });
+  // Set up, but the hub keeps it off (low memory).
+  engines.kokoro.set('off');
   page = await openOptions('settings');
   await expect(kokoroRow(page).locator('.vd-status')).toHaveText('Not running');
   await expect(page.locator('.engine-card[data-engine="kokoro"] .vd-status')).toHaveText('Installed but not running');
@@ -27,15 +27,15 @@ test('engines read Ready, Starting, Not running or Not installed', async ({ engi
   await expect(kokoroRow(page).locator('.vd-status')).toHaveText('Ready');
 });
 
-test('an engine that answers is remembered as installed', async ({ engines, openOptions, serviceWorker }, testInfo) => {
+test('an engine the hub reports set up is remembered, so with the hub down it is not running', async ({ engines, openOptions, serviceWorker }, testInfo) => {
   test.skip(onlyOnce(testInfo));
   const page = await openOptions('settings');
   await expect(kokoroRow(page).locator('.vd-status')).toHaveText('Ready');
-  const seen = await serviceWorker.evaluate(async () => (await chrome.storage.local.get('engineSeen')).engineSeen);
-  expect(Object.keys(seen).sort()).toEqual(['kokoro', 'piper']);
-  engines.kokoro.set('stopped');
+  await expect.poll(async () => Object.keys(await serviceWorker.evaluate(async () => (await chrome.storage.local.get('engineSeen')).engineSeen || {})).sort()).toEqual(['kokoro', 'piper']);
+  engines.piper.set('stopped'); // the whole hub is down
   await page.reload();
   await expect(kokoroRow(page).locator('.vd-status')).toHaveText('Not running');
+  await expect(piperRow(page).locator('.vd-status')).toHaveText('Not running');
 });
 
 test('no glyph icons are left on the settings page', async ({ openOptions }, testInfo) => {

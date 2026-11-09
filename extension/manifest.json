@@ -5,6 +5,7 @@
   "description": "Select text and hear it read aloud: Chrome's built-in voice right away, or natural Piper and Kokoro voices on your own computer.",
   "permissions": [
     "activeTab",
+    "alarms",
     "contextMenus",
     "offscreen",
     "scripting",
@@ -12,8 +13,7 @@
     "tts"
   ],
   "host_permissions": [
-    "http://127.0.0.1:7477/*",
-    "http://127.0.0.1:7478/*"
+    "http://127.0.0.1:7477/*"
   ],
   "background": {
     "service_worker": "background.js",

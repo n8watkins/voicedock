@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  PIPER_BASE_URL,
+  HUB_URL,
   MAX_PROFILES,
   MAX_FAVORITES,
   fmt,
@@ -16,7 +16,7 @@ import {
 } from '../extension/src/shared.js';
 
 test('constants have expected values', () => {
-  assert.equal(PIPER_BASE_URL, 'http://127.0.0.1:7477');
+  assert.equal(HUB_URL, 'http://127.0.0.1:7477');
   assert.equal(MAX_PROFILES, 5);
   assert.equal(MAX_FAVORITES, 5);
 });

@@ -1,5 +1,5 @@
-// Offscreen document: fetches audio from the local engine (Piper or Kokoro)
-// and plays it, one sentence at a time, so the popup and the player bar can
+// Offscreen document: fetches audio from the local engine (Piper or Kokoro,
+// both through the VoiceDock hub's POST /tts) and plays it, one sentence at a time, so the popup and the player bar can
 // say "Sentence 3 of 6" and skip back or forward a sentence.
 // This runs in a real DOM context, unlike the service worker.
 import { splitSentences } from "./src/shared.js";
@@ -58,7 +58,7 @@ async function fetchEngineAudio(text, ttsUrl, voice = "", engine = currentEngine
     response = await fetch(ttsUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(voice ? { text, voice } : { text }),
+      body: JSON.stringify(voice ? { text, engine, voice } : { text, engine }),
       signal: controller.signal
     });
   } finally {
@@ -68,11 +68,15 @@ async function fetchEngineAudio(text, ttsUrl, voice = "", engine = currentEngine
 
   if (!response.ok) {
     let details = "";
+    let reason = "";
     try {
       const body = await response.json();
       details = body.error || "";
+      reason = typeof body.reason === "string" ? body.reason : "";
     } catch (_) {}
-    throw new Error(`${engineLabel(engine)} server error ${response.status}${details ? ": " + details : ""}`);
+    const err = new Error(details || `${engineLabel(engine)} could not read (error ${response.status})`);
+    err.reason = reason; // the hub's "not-installed", "low-memory" or "failed"
+    throw err;
   }
 
   return response.blob();
@@ -231,15 +235,21 @@ async function playQueue(sentences, ttsUrl, voice, engine, generation) {
       chrome.runtime.sendMessage({
         type: "playback-error",
         engine,
+        reason: (err && err.reason) || "",
         error: (err && err.message) || `${engineLabel(engine)} playback failed.`
       }).catch(() => {});
     }
   };
 
   let i = 0;
+  let firstAudio = true;
   while (i < total && live()) {
     sendProgress(i + 1, total, `${i + 1}/${total}`);
     const { blob, err } = await fetchSentence(i);
+    if (!err && firstAudio && live()) {
+      firstAudio = false;
+      chrome.runtime.sendMessage({ type: "engine-audio", engine }).catch(() => {});
+    }
     if (i + 1 < total) fetchSentence(i + 1);
     // Keep memory flat on long reads: forget audio more than one sentence back.
     fetched.delete(i - 2);

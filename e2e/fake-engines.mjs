@@ -1,11 +1,10 @@
-// Fake Piper (7477) and Kokoro (7478) servers for the end-to-end tests. They
-// speak the engine API (docs/API.md) with canned voices and a short tone for
-// /tts, and each can be switched between running, starting (Kokoro loading
-// its model) and stopped (connections are dropped, as when nothing listens).
+// A fake VoiceDock hub (7477) for the end-to-end tests. It speaks the hub API
+// (docs/API.md) with canned voices and a short tone for /tts, and Piper and
+// Kokoro can each be put in any state the real hub reports.
 //
-// The extension's host permissions name these exact ports, so the tests need
-// them free: CI runners have nothing there; on a machine running real engines,
-// run the tests in their own network namespace (npm run test:e2e:isolated).
+// The extension's host permission names this exact port, so the tests need it
+// free: CI runners have nothing there; on a machine running a real hub, run
+// the tests in their own network namespace (npm run test:e2e:isolated).
 import http from 'node:http';
 
 export const PIPER_VOICES = [
@@ -35,104 +34,128 @@ export function toneWav(text, sampleRate = 16000) {
   return buf;
 }
 
-function createEngine({ engine, port, voices, defaultVoice, routes = () => false }) {
-  const state = { mode: 'running', ttsRequests: [] };
+// A fake VoiceDock hub on 7477 (docs/API.md): GET /engines with each
+// engine's state, POST /tts for Piper and Kokoro, the voice lists, warm-ups
+// and heartbeats. Nothing listens on Kokoro's own port: the extension only
+// ever talks to the hub.
+//
+//   engines.piper.set('running' | 'stopped')   stopped: the whole hub is down
+//   engines.kokoro.set(mode), where mode is
+//     'running'  ready, model loaded           'starting' starting
+//     'standby'  set up, not running: starts on the first read or a warm-up
+//     'off'      set up, but kept off (Installed but not running)
+//     'stopped'  not set up (Not installed)
+//   engines.<id>.state.ttsRequests   the reads that reached that engine
+//   engines.hub.starts               warm-ups and cold reads that started Kokoro
+//   engines.hub.presence             heartbeats received
+export async function startFakeEngines() {
+  const piper = { state: { mode: 'running', ttsRequests: [] }, set(mode) { piper.state.mode = mode; if (mode === 'stopped') dropAll(); } };
+  const kokoro = { state: { mode: 'running', ttsRequests: [] }, set(mode) { kokoro.state.mode = mode; } };
+  const hub = { starts: 0, presence: [], onDemand: false };
   const sockets = new Set();
+  const dropAll = () => { for (const socket of sockets) socket.destroy(); };
+
+  const KOKORO_STATE = { running: 'ready', starting: 'starting', standby: 'idle', off: 'stopped', stopped: 'not-installed' };
+  const kokoroEntry = () => {
+    const state = KOKORO_STATE[kokoro.state.mode] || 'not-installed';
+    const installed = state !== 'not-installed';
+    return {
+      id: 'kokoro', name: 'Kokoro', heavy: true, state, installed, running: state === 'ready',
+      startsOnDemand: state === 'idle', speaking: false, voices: installed ? KOKORO_VOICES.length : null,
+      rssMb: state === 'ready' ? 612 : null, modelLoaded: state === 'ready',
+      detail: {
+        ready: 'Model loaded, unloads in 9 min',
+        starting: 'Starting, about 3 s',
+        idle: 'Starts when you read, about 3 s',
+        stopped: 'Memory is low, so Kokoro stays off for now',
+        'not-installed': "Kokoro's Python environment is missing: run setup.ps1 (Windows) or setup.sh",
+      }[state],
+      setup: installed ? null : "Kokoro's Python environment is missing: run setup.ps1 (Windows) or setup.sh",
+      coldStart: { estimateMs: 3400, budgetMs: 8000, processMs: 600, modelLoadMs: 1800 },
+    };
+  };
+  const piperEntry = () => ({
+    id: 'piper', name: 'Piper', heavy: false, state: 'ready', installed: true, running: true, startsOnDemand: false,
+    speaking: false, voices: PIPER_VOICES.length, rssMb: 0, detail: `${PIPER_VOICES.length} voices, no process while idle`,
+    setup: null, coldStart: { estimateMs: 1000, budgetMs: 2000 },
+  });
+  // A cold Kokoro starts in 300 ms here.
+  const startKokoro = () => {
+    if (kokoro.state.mode !== 'standby') return Promise.resolve();
+    hub.starts += 1;
+    kokoro.state.mode = 'starting';
+    return new Promise((resolve) => setTimeout(() => { kokoro.state.mode = 'running'; resolve(); }, 300));
+  };
+
   const json = (res, status, body) => {
-    res.writeHead(status, { 'Content-Type': 'application/json' });
+    res.writeHead(status, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
     res.end(JSON.stringify(body));
   };
-  const server = http.createServer((req, res) => {
-    if (state.mode === 'stopped') { req.socket.destroy(); return; }
-    const url = new URL(req.url, `http://127.0.0.1:${port}`);
-    if (req.method === 'GET' && url.pathname === '/health') {
+  const readBody = (req) => new Promise((resolve) => {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => { try { resolve(JSON.parse(body || '{}')); } catch (_) { resolve({}); } });
+  });
+
+  const server = http.createServer(async (req, res) => {
+    if (piper.state.mode === 'stopped') { req.socket.destroy(); return; }
+    const url = new URL(req.url, 'http://127.0.0.1:7477');
+    const route = `${req.method} ${url.pathname}`;
+    if (route === 'GET /health') {
+      return json(res, 200, { status: 'ok', engine: 'piper', api: 2, version: '1.0.0', pid: 4242, rssMb: 24.7, speaking: false });
+    }
+    if (route === 'GET /engines') {
+      return json(res, 200, { api: 2, pressure: 'ok', presence: { lastSeenAt: null, clients: hub.presence.length ? 1 : 0 }, engines: [piperEntry(), kokoroEntry()] });
+    }
+    if (route === 'GET /voices' || route === 'GET /engines/piper/voices') {
       return json(res, 200, {
-        status: 'ok', engine, version: '1.0.0', pid: 4242, rssMb: engine === 'piper' ? 24.7 : 46.9,
-        speaking: false, voices: voices.length,
-        ...(engine === 'kokoro' ? { modelLoaded: false, modelLoading: state.mode === 'starting' } : {}),
+        engine: 'piper', voices: PIPER_VOICES, defaultVoice: PIPER_VOICES[0],
+        sizes: Object.fromEntries(PIPER_VOICES.map((v, i) => [v, 63_000_000 + i * 11_000_000])), voiceDir: 'C:\\VoiceDock\\servers\\piper\\piper\\voices',
       });
     }
-    if (req.method === 'GET' && url.pathname === '/voices') {
-      return json(res, 200, {
-        engine, voices, defaultVoice,
-        ...(engine === 'piper' ? { sizes: Object.fromEntries(voices.map((v, i) => [v, 63_000_000 + i * 11_000_000])), voiceDir: 'C:\\VoiceDock\\servers\\piper\\piper\\voices' } : {}),
-      });
+    if (route === 'GET /engines/kokoro/voices') {
+      if (kokoroEntry().state === 'not-installed') return json(res, 404, { error: 'Kokoro is not set up.' });
+      return json(res, 200, { engine: 'kokoro', voices: KOKORO_VOICES, defaultVoice: 'af_heart' });
     }
-    if (req.method === 'POST' && url.pathname === '/tts') {
-      let body = '';
-      req.on('data', (chunk) => { body += chunk; });
-      req.on('end', () => {
-        let parsed = {};
-        try { parsed = JSON.parse(body || '{}'); } catch (_) {}
-        state.ttsRequests.push(parsed);
-        res.writeHead(200, { 'Content-Type': 'audio/wav' });
-        res.end(toneWav(parsed.text || ''));
-      });
-      return undefined;
+    if (route === 'POST /engines/kokoro/warm') {
+      const entry = kokoroEntry();
+      if (entry.state === 'not-installed') return json(res, 409, { outcome: 'refused', reason: 'not-installed' });
+      if (entry.state !== 'idle') return json(res, 200, { outcome: 'already', state: entry.state });
+      startKokoro();
+      return json(res, 202, { outcome: 'ok', state: 'starting', expectedMs: 3400 });
     }
-    if (req.method === 'POST' && url.pathname === '/voices/open-folder') return json(res, 200, { ok: true });
-    if (routes(req, res, url, json)) return undefined;
+    if (route === 'POST /presence') {
+      hub.presence.push(await readBody(req));
+      return json(res, 200, { ok: true });
+    }
+    if (route === 'POST /tts') {
+      const body = await readBody(req);
+      const engine = body.engine || 'piper';
+      if (engine === 'kokoro') {
+        const state = kokoroEntry().state;
+        if (state === 'not-installed') return json(res, 409, { error: 'Kokoro is not set up.', reason: 'not-installed' });
+        if (state === 'stopped') return json(res, 503, { error: 'Memory is low, so Kokoro does not start now.', reason: 'low-memory' });
+        await startKokoro();
+      }
+      (engine === 'kokoro' ? kokoro : piper).state.ttsRequests.push(body);
+      res.writeHead(200, { 'Content-Type': 'audio/wav' });
+      return res.end(toneWav(body.text || ''));
+    }
+    if (route === 'POST /voices/open-folder') return json(res, 200, { ok: true });
     return json(res, 404, { error: 'Not found' });
   });
   server.on('connection', (socket) => {
     sockets.add(socket);
     socket.on('close', () => sockets.delete(socket));
   });
-  return {
-    engine,
-    port,
-    state,
-    // 'running' | 'starting' (Kokoro's model is loading) | 'stopped'
-    set(mode) {
-      state.mode = mode;
-      if (mode === 'stopped') for (const socket of sockets) socket.destroy();
-    },
-    listen: () => new Promise((resolve, reject) => {
-      server.once('error', reject);
-      server.listen(port, '127.0.0.1', () => resolve());
-    }),
-    close: () => new Promise((resolve) => {
-      for (const socket of sockets) socket.destroy();
-      server.close(() => resolve());
-    }),
-  };
-}
-
-export async function startFakeEngines() {
-  // Kokoro on demand: with hub.onDemand, the fake Piper server reports Kokoro
-  // as startable (GET /engines), lists its voices while it is stopped, and
-  // starts it on POST /engines/kokoro/start, like servers/piper/kokoro.js.
-  const hub = { onDemand: false, starts: 0 };
-  let kokoro;
-  const hubRoutes = (req, res, url, json) => {
-    if (req.method === 'GET' && url.pathname === '/engines') {
-      json(res, 200, { engines: [
-        { id: 'piper', state: 'ready', voices: PIPER_VOICES.length },
-        { id: 'kokoro', state: kokoro.state.mode === 'stopped' ? (hub.onDemand ? 'stopped' : 'not-installed') : 'ready', startsOnDemand: hub.onDemand },
-      ] });
-      return true;
-    }
-    if (!hub.onDemand) return false;
-    if (req.method === 'GET' && url.pathname === '/engines/kokoro/voices') {
-      json(res, 200, { engine: 'kokoro', voices: KOKORO_VOICES, defaultVoice: 'af_heart' });
-      return true;
-    }
-    if (req.method === 'POST' && url.pathname === '/engines/kokoro/start') {
-      hub.starts += 1;
-      setTimeout(() => { kokoro.set('running'); json(res, 200, { ok: true, state: 'ready', owned: true, startedMs: 300 }); }, 300);
-      return true;
-    }
-    return false;
-  };
-  const piper = createEngine({ engine: 'piper', port: 7477, voices: PIPER_VOICES, defaultVoice: PIPER_VOICES[0], routes: hubRoutes });
-  kokoro = createEngine({ engine: 'kokoro', port: 7478, voices: KOKORO_VOICES, defaultVoice: 'af_heart' });
   try {
-    await piper.listen();
-    await kokoro.listen();
+    await new Promise((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(7477, '127.0.0.1', () => resolve());
+    });
   } catch (err) {
-    await piper.close().catch(() => {});
     if (err.code === 'EADDRINUSE') {
-      throw new Error('Port 7477 or 7478 is taken (a real Piper or Kokoro?). Run npm run test:e2e:isolated, which gives the tests their own network.');
+      throw new Error('Port 7477 is taken (a real VoiceDock hub?). Run npm run test:e2e:isolated, which gives the tests their own network.');
     }
     throw err;
   }
@@ -140,7 +163,14 @@ export async function startFakeEngines() {
     piper,
     kokoro,
     hub,
-    reset() { piper.set('running'); kokoro.set('running'); piper.state.ttsRequests.length = 0; kokoro.state.ttsRequests.length = 0; hub.onDemand = false; hub.starts = 0; },
-    close: () => Promise.all([piper.close(), kokoro.close()]),
+    reset() {
+      piper.state.mode = 'running';
+      kokoro.state.mode = 'running';
+      piper.state.ttsRequests.length = 0;
+      kokoro.state.ttsRequests.length = 0;
+      hub.starts = 0;
+      hub.presence.length = 0;
+    },
+    close: () => new Promise((resolve) => { dropAll(); server.close(() => resolve()); }),
   };
 }

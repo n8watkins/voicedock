@@ -3,17 +3,23 @@
 // are shared with the React UI (src/shared.js) so they can't drift apart.
 import {
   ENGINE_SEEN_KEY,
+  HUB_URL,
   LOCAL_ENGINE_IDS,
+  TTS_URL,
   chooseEngine,
   defaultProfile,
-  engineBaseUrl,
+  engineInstalled,
   engineLabel,
+  engineState,
+  engineUsable,
+  fetchEngines,
   markEngineSeen,
   normalizeProfile,
-  PIPER_BASE_URL,
   pickDeviceVoice,
   runSettingsMigration,
   splitSentences,
+  startingText,
+  unavailableReason,
 } from "./src/shared.js";
 
 const OFFSCREEN_URL  = "offscreen.html";
@@ -100,6 +106,7 @@ async function migrateAndRebuild() {
 
 chrome.runtime.onInstalled.addListener((details) => {
   migrateAndRebuild().catch(err => console.error("[VoiceDock] migration failed:", err));
+  ensurePresenceAlarm();
   // A new install opens the Get started page: try the Basic voice right away,
   // and see whether Piper or Kokoro is running and how to set them up.
   if (details?.reason === "install") {
@@ -109,6 +116,8 @@ chrome.runtime.onInstalled.addListener((details) => {
 });
 chrome.runtime.onStartup?.addListener(() => {
   migrateAndRebuild().catch(err => console.error("[VoiceDock] migration failed:", err));
+  ensurePresenceAlarm();
+  sendPresence().catch(() => {});
 });
 
 // Rebuild whenever profiles or activeId change (popup saved new data).
@@ -258,32 +267,34 @@ async function skipSentence(delta) {
   if (existing.length > 0) chrome.runtime.sendMessage({ type: "skip-audio", delta: step }).catch(() => {});
 }
 
-// ─── Engine Health Checks (per engine, 5-second cache) ───────────────────────
-const _engineOnlineCache = Object.fromEntries(
-  LOCAL_ENGINE_IDS.map(id => [id, { value: false, expiresAt: 0 }])
-);
+// ─── Engines, through the hub ────────────────────────────────────────────────
+// One GET /engines answers for every local engine (docs/API.md). Cached for
+// 3 s (2 s while the hub is down) so a burst of reads asks once.
+let _hubCache = { value: null, expiresAt: 0 };
+let _hubPending = null;
 
-async function checkEngineOnline(engine) {
-  const cache = _engineOnlineCache[engine];
-  const baseUrl = engineBaseUrl(engine);
-  if (!cache || !baseUrl) return false;
-  if (Date.now() < cache.expiresAt) return cache.value;
+async function getHub() {
+  if (Date.now() < _hubCache.expiresAt) return _hubCache.value;
+  if (_hubPending) return _hubPending;
+  _hubPending = (async () => {
+    const hub = await fetchEngines();
+    _hubCache = { value: hub, expiresAt: Date.now() + (hub.reachable ? 3000 : 2000) };
+    for (const id of LOCAL_ENGINE_IDS) if (engineInstalled(id, hub)) rememberEngineSeen(id);
+    return hub;
+  })();
   try {
-    const ctrl  = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 2500);
-    const res   = await fetch(`${baseUrl}/health`, { signal: ctrl.signal });
-    clearTimeout(timer);
-    _engineOnlineCache[engine] = { value: res.ok, expiresAt: Date.now() + 5000 };
-    if (res.ok) rememberEngineSeen(engine);
-    return res.ok;
-  } catch (_) {
-    _engineOnlineCache[engine] = { value: false, expiresAt: Date.now() + 2000 };
-    return false;
+    return await _hubPending;
+  } finally {
+    _hubPending = null;
   }
 }
 
-// Remembers that an engine answered, so the UI can tell "Installed but not
-// running" from "Not installed" later (see engineState in src/shared.js).
+function invalidateEngineCache() {
+  _hubCache.expiresAt = 0;
+}
+
+// Remembers that an engine is set up, so while the hub is not running the UI
+// can say "Installed but not running" rather than "Not installed".
 async function rememberEngineSeen(engine) {
   try {
     const stored = await chrome.storage.local.get(ENGINE_SEEN_KEY);
@@ -292,44 +303,59 @@ async function rememberEngineSeen(engine) {
   } catch (_) {}
 }
 
-// ─── Kokoro on demand ────────────────────────────────────────────────────────
-// Kokoro doesn't run all the time: the Piper server starts it on the first
-// read (POST /engines/kokoro/start, see servers/piper/kokoro.js) and it stops
-// itself after 30 idle minutes. Resolves true once Kokoro answers. Concurrent
-// callers share one start.
-const KOKORO_START_TIMEOUT_MS = 30_000;
-let _kokoroStart = null;
-let _engineStarting = null; // "kokoro" while it starts, for the popup and player bar
+// The hub starts Kokoro on the first read (POST /tts waits for it); a warm-up
+// starts it now, without waiting, when the popup opens on a Kokoro profile.
+let _engineStarting = null; // "kokoro" from a cold read until its first audio
+let _engineStartingText = ""; // "Starting Kokoro, about 5 s", from the hub's figures
 
-function startEngineOnDemand(engine) {
-  if (engine !== "kokoro") return Promise.resolve(false);
-  if (_kokoroStart) return _kokoroStart;
-  _kokoroStart = (async () => {
-    _engineStarting = engine;
-    notifyPlaybackState();
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), KOKORO_START_TIMEOUT_MS);
-    try {
-      const res = await fetch(`${PIPER_BASE_URL}/engines/kokoro/start`, { method: "POST", signal: ctrl.signal });
-      if (!res.ok) return false;
-      _engineOnlineCache.kokoro = { value: true, expiresAt: Date.now() + 5000 };
-      rememberEngineSeen("kokoro");
-      return true;
-    } catch (_) {
-      return false; // Piper is down or too old to start Kokoro
-    } finally {
-      clearTimeout(timer);
-      _engineStarting = null;
-      _kokoroStart = null;
-      notifyPlaybackState();
+function warmEngine(engine) {
+  if (!LOCAL_ENGINE_IDS.includes(engine)) return Promise.resolve(false);
+  invalidateEngineCache();
+  return fetch(`${HUB_URL}/engines/${engine}/warm`, { method: "POST" })
+    .then((res) => res.ok)
+    .catch(() => false);
+}
+
+// ─── Heartbeat ───────────────────────────────────────────────────────────────
+// The hub stops every engine 5 minutes after the last heartbeat, so engines
+// stop soon after Chrome closes (hub/engines.js). Sent on browser start, every
+// minute, when the popup opens and on every read, and only by people who read
+// with a local engine: someone on the Basic voice never touches the hub.
+const PRESENCE_ALARM = "voicedock-presence";
+
+async function sendPresence({ reading = false } = {}) {
+  try {
+    const { profiles, activeId } = await getProfileState();
+    if (!profiles.some((p) => LOCAL_ENGINE_IDS.includes(p.engine))) return false;
+    const active = profiles.find((p) => p.id === activeId) || profiles[0];
+    const res = await fetch(`${HUB_URL}/presence`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        extensionVersion: chrome.runtime.getManifest?.().version || "",
+        activeEngine: active?.engine || null,
+        reading,
+      }),
+    });
+    return res.ok;
+  } catch (_) {
+    return false; // the hub is not running: nothing to keep alive
+  }
+}
+
+async function ensurePresenceAlarm() {
+  if (!chrome.alarms) return;
+  try {
+    if (!(await chrome.alarms.get(PRESENCE_ALARM))) {
+      await chrome.alarms.create(PRESENCE_ALARM, { periodInMinutes: 1 });
     }
-  })();
-  return _kokoroStart;
+  } catch (_) {}
 }
 
-function invalidateEngineCache() {
-  for (const id of LOCAL_ENGINE_IDS) _engineOnlineCache[id].expiresAt = 0;
-}
+chrome.alarms?.onAlarm.addListener((alarm) => {
+  if (alarm.name === PRESENCE_ALARM) sendPresence().catch(() => {});
+});
+ensurePresenceAlarm();
 
 // ─── Playback State ───────────────────────────────────────────────────────────
 let _isPlaying    = false;
@@ -354,6 +380,7 @@ function playbackStateForTab(tabId) {
     rate:      _currentRate,
     engine:    _playbackEngine,
     starting:  _engineStarting,
+    startingText: _engineStarting ? _engineStartingText : "",
     progress:  _playbackProgress
   };
 }
@@ -425,9 +452,6 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 
 // ─── Local engine TTS (Piper or Kokoro, played by the offscreen document) ────
 async function speakWithEngine(engine, text, settings) {
-  const online = await checkEngineOnline(engine);
-  if (!online) throw new Error(`${engineLabel(engine)} server is offline`);
-
   _browserSpeakGeneration++;
   chrome.tts.stop();
   _activeEngineRequest = { text, settings: { ...settings } };
@@ -463,7 +487,7 @@ async function speakWithEngine(engine, text, settings) {
     type:    "speak-text",
     text,
     engine,
-    ttsUrl:  `${engineBaseUrl(engine)}/tts`,
+    ttsUrl:  TTS_URL, // the hub: Piper reads there, Kokoro is started and reached through it
     rate:    settings.rate   ?? 1.0,
     volume:  settings.volume ?? 1.0,
     voice:   settings.voice  || ""
@@ -485,6 +509,7 @@ async function stopAll() {
   _playbackEngine    = null;
   _playingSourceTabId = null;
   _activeEngineRequest = null;
+  _engineStarting = null;
   _browserSpeakGeneration++;
   _browserQueue = null;
   resetProgress();
@@ -509,16 +534,26 @@ async function speakText(text, profile, tabId = null) {
   const { fallback = true } = await chrome.storage.local.get("fallback");
 
   let online = {};
+  const reasons = {};
   if (settings.engine !== "browser") {
-    let up = await checkEngineOnline(settings.engine);
-    // The Piper server starts Kokoro on demand (when Piper itself runs).
-    if (!up && settings.engine === "kokoro" && await checkEngineOnline("piper")) {
-      if (tabId != null) showTabHint({ id: tabId }, "Starting Kokoro, about 5 s");
-      up = await startEngineOnDemand("kokoro");
+    const hub = await getHub();
+    // While the hub is not running, an engine that was set up before is
+    // "not running" rather than "not set up".
+    const seen = hub.reachable ? null : (await chrome.storage.local.get(ENGINE_SEEN_KEY))[ENGINE_SEEN_KEY]?.[settings.engine];
+    const state = engineState(settings.engine, hub, seen);
+    online = { [settings.engine]: engineUsable(state) };
+    reasons[settings.engine] = unavailableReason(settings.engine, state);
+    // Not running yet: the hub starts it for this read. Say so now, so the
+    // wait never looks like nothing happened.
+    if (state === "standby" || state === "starting") {
+      _engineStarting = settings.engine;
+      _engineStartingText = startingText(settings.engine, hub);
+      notifyPlaybackState();
+      if (tabId != null) showTabHint({ id: tabId }, _engineStartingText);
     }
-    online = { [settings.engine]: up };
+    sendPresence({ reading: true }).catch(() => {});
   }
-  let choice = chooseEngine(settings, online, fallback);
+  let choice = chooseEngine(settings, online, fallback, reasons);
 
   if (choice.engine && choice.engine !== "browser") {
     try {
@@ -676,8 +711,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   // Popup opened on a Kokoro profile: start Kokoro now, so the read that
   // usually follows doesn't wait.
+  // The popup opened: a client is here.
+  if (message.type === "presence") {
+    sendPresence().catch(() => {});
+    return;
+  }
+
   if (message.type === "warm-engine") {
-    startEngineOnDemand(message.engine).catch(() => {});
+    sendPresence().catch(() => {});
+    warmEngine(message.engine).catch(() => {});
+    return;
+  }
+
+  // The offscreen player has the first audio of a read: a cold start is over.
+  if (message.type === "engine-audio") {
+    if (_engineStarting) {
+      _engineStarting = null;
+      notifyPlaybackState();
+    }
     return;
   }
 
@@ -691,6 +742,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   // Offscreen notifies us when queue finishes naturally
   if (message.type === "playback-ended") {
+    _engineStarting = null;
     _isPlaying = false;
     _isPaused  = false;
     _playbackEngine = null;
@@ -704,6 +756,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === "playback-error") {
     const request = _activeEngineRequest;
+    _engineStarting = null;
+    invalidateEngineCache();
     _isPlaying = false;
     _isPaused  = false;
     _playbackEngine = null;
