@@ -17,7 +17,7 @@ test('engines read Ready, Starting, Not running or Not installed', async ({ engi
   await seed({ engineSeen: { kokoro: '2026-11-01T09:00:00.000Z' } });
   page = await openOptions('settings');
   await expect(kokoroRow(page).locator('.vd-status')).toHaveText('Not running');
-  await expect(page.locator('.settings-group', { hasText: 'Kokoro server' }).locator('.vd-status')).toHaveText('Installed but not running');
+  await expect(page.locator('.engine-card[data-engine="kokoro"] .vd-status')).toHaveText('Installed but not running');
 
   engines.kokoro.set('starting');
   await page.getByRole('button', { name: 'Check again' }).nth(1).click();
@@ -50,8 +50,11 @@ test('no glyph icons are left on the settings page', async ({ openOptions }, tes
   }
 });
 
-for (const tab of ['welcome', 'profiles', 'voices', 'settings']) {
-  test(`settings page: ${tab}`, async ({ openOptions, seed }) => {
+// Wide (the side nav and up to 830 px of content) and narrow (the nav becomes
+// a row of tabs).
+for (const [tab, width] of [['welcome', 1100], ['profiles', 1100], ['voices', 1100], ['settings', 1100], ['credits', 1100], ['settings', 700]]) {
+  const name = width === 1100 ? tab : `${tab}-narrow`;
+  test(`settings page: ${name}`, async ({ openOptions, seed }) => {
     await seed({
       profiles: [
         { id: 'a', name: 'Articles', engine: 'piper', voice: 'en_US-ryan-high.onnx', rate: 1.2, volume: 1 },
@@ -60,9 +63,9 @@ for (const tab of ['welcome', 'profiles', 'voices', 'settings']) {
       activeId: 'a',
       favoritesByEngine: { piper: ['en_US-ryan-high.onnx'], kokoro: [] },
     });
-    const page = await openOptions(tab, { width: 760, height: 900 });
+    const page = await openOptions(tab, { width, height: 900 });
     await expect(page.locator('.header-engine .vd-status.ready')).toHaveCount(2);
     if (tab === 'voices') await expect(page.locator('.voice-card')).toHaveCount(5);
-    await expect(page).toHaveScreenshot(`options-${tab}.png`, { fullPage: true });
+    await expect(page).toHaveScreenshot(`options-${name}.png`, { fullPage: true });
   });
 }

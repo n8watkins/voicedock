@@ -126,7 +126,7 @@ The VoiceDock icon appears in the toolbar.
 
 > **You can stop here.**
 > The extension already reads with the Basic voice built into Chrome.
-> A new install opens a **Get started** page that reads a sample, shows whether Piper and Kokoro are running, and gives the Piper setup commands.
+> A new install opens a **Get started** page that reads a sample, shows which engines run, and gives the setup steps for your OS.
 > For natural local voices, set up one or both engines below.
 
 The built React bundles are committed under `extension/dist/`, so no build step is needed just to load the extension.
@@ -139,15 +139,36 @@ Kokoro is optional (see [Kokoro server](#kokoro-server) for what it costs).
 
 #### Piper server
 
-The quick way, from `servers/piper/`:
+It costs a 90 MB download (Piper and one voice) and about 20 MB of RAM while idle.
 
-```bash
-npm run setup
-```
+**Windows** (PowerShell):
 
-It adapts to your OS: it installs dependencies, downloads the Piper binary and a default voice (`en_US-amy-medium`), starts the server, and adds the VoiceDock tray (green or red status dot) that starts at login.
-The tray shows both engines with their live memory, starts, stops and restarts Piper, and can record memory history and open a memory report; see [servers/piper/README.md](servers/piper/README.md#4-start-the-server).
-It is idempotent, so re-run it anytime.
+1. Install Node.js and Git (skip if `node -v` prints 18 or newer):
+
+   ```powershell
+   winget install -e --id OpenJS.NodeJS.LTS
+   winget install -e --id Git.Git
+   ```
+
+2. Get VoiceDock (skip if you cloned it in Step 1):
+
+   ```powershell
+   git clone https://github.com/n8watkins/voicedock
+   cd voicedock\servers\piper
+   ```
+
+3. Set up Piper: the Piper binary and one voice, started now and at every sign-in by a tray icon.
+
+   ```powershell
+   npm run setup
+   ```
+
+**macOS:** the same three steps, with `brew install node git` first and `cd voicedock/servers/piper`.
+**Linux:** the same, with `sudo apt install nodejs npm git` first (needs Node 18 or newer: Ubuntu 24.04 has it, older releases use [nodejs.org](https://nodejs.org/)).
+
+**How you know it worked:** the tray icon is green, and VoiceDock's popup and Settings show Piper as **Ready**.
+`npm run setup` is safe to re-run.
+The tray shows both engines with their live memory, starts, stops and restarts Piper, and can record memory history; see [servers/piper/README.md](servers/piper/README.md#4-start-the-server).
 
 <details>
 <summary>Manual Piper setup</summary>
@@ -232,9 +253,20 @@ See [servers/kokoro/README.md](servers/kokoro/README.md).
 
 ### Step 4 - Verify in Chrome
 
-1. Open the extension's **Settings** tab: each engine shows **Online** or **Offline**, with a **Check again** button.
-2. On **Profiles**, edit a profile and pick its **Engine** and **Voice**, then press **Test**.
-3. The popup's status dot shows whether the active profile's engine is reachable.
+1. Open VoiceDock's **Settings**: each engine card shows its state, with **Check again**.
+2. On **Profiles**, edit a profile: pick the engine pill, then a voice, and press **Test**.
+3. The popup's dock strip shows every engine's state.
+
+### What the engine states mean
+
+| State | Means | Fix |
+| --- | --- | --- |
+| **Ready** | It answers now. | Nothing. |
+| **Starts when you read** (Kokoro) | Set up; the Piper server starts it on your first Kokoro read. | Nothing. |
+| **Installed but not running** | It answered before, but not now. | Piper: tray icon, then **Start** (or `npm start` in `servers/piper`). Kokoro: start Piper first; still stuck, run `setup.ps1` or `setup.sh` again and restart Piper. |
+| **Not installed** | It never answered on this computer. | Follow the steps above. |
+
+The extension's Settings page shows the same steps per OS, with copy buttons.
 
 ---
 
@@ -251,7 +283,9 @@ Stop with `Alt+Shift+S` again, the popup's **Stop** button, or right-click → *
 Rebind them at `chrome://extensions/shortcuts` (the Settings tab links there).
 
 **Profiles:** each profile stores an engine (Piper, Kokoro, or the Basic voice), a voice, a speed, and a volume.
-Switch profiles with the `‹` / `›` arrows in the popup, or use **Read as…** in the right-click menu.
+Switch profiles with the pills in the popup, or use **Read as…** in the right-click menu.
+
+**Voices:** in the popup, press **Reading with** to pick a voice: engine pills on top, then that engine's voices with search, a language filter, favorites and a sample button.
 
 **While reading:** the on-page overlay shows progress and lets you nudge speed and volume for the current reading without changing the profile.
 
@@ -261,12 +295,12 @@ Switch profiles with the `‹` / `›` arrows in the popup, or use **Read as…*
 
 | Tab | What you can do |
 | --- | --- |
-| **Get started** | Opens on a new install: read a sample, see which voices are running, set up Piper in three steps, and switch the profile to Piper or Kokoro once it runs. |
-| **Profiles** | Create, edit, and delete up to 5 profiles, each with an engine, voice, speed, and volume. |
-| **Voices** | Switch between Piper and Kokoro, test voices, and star up to 5 favorites per engine. Piper voices can be deleted from disk. |
-| **Settings** | The Basic voice fallback, each engine server's address and status with setup hints, and keyboard shortcuts. |
-| **About** | How selected text flows through the engine servers and the offscreen player. |
-| **Credits** | Piper, Kokoro, and the other open-source pieces. |
+| **Get started** | Opens on a new install: read a sample, see which voices run here, and set up Piper or Kokoro step by step. |
+| **Profiles** | Up to 5 profiles, each with an engine and voice (engine pills, then a voice list), speed and volume. |
+| **Voices** | Each engine's voices: samples, up to 5 favorites per engine, and deleting Piper voices from disk. |
+| **Settings** | An engine card each for Piper and Kokoro, the setup steps per OS with copy buttons, the Basic voice fallback, and shortcuts. |
+| **How it works** | Where your text goes, in five lines. |
+| **Credits** | Piper, Kokoro and the other open-source pieces. |
 
 ---
 

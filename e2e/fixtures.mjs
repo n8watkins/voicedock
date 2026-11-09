@@ -14,13 +14,19 @@ export const EXTENSION_DIR = resolve(import.meta.dirname, '..', 'extension');
 // activeTab on a real page. With pageAccess, the test loads a copy of the
 // extension whose manifest also allows http://127.0.0.1 pages, so the popup's
 // Read selection and the player bar work on the test article.
-function extensionCopyWithPageAccess() {
+function extensionCopyWithPageAccess({ openShadow = false } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'voicedock-ext-'));
   cpSync(EXTENSION_DIR, dir, { recursive: true });
   const manifestPath = join(dir, 'manifest.json');
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
   manifest.host_permissions = [...manifest.host_permissions, 'http://127.0.0.1/*'];
   writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+  // The player bar lives in a closed shadow root; the accessibility checks
+  // need to see into it, so their copy opens it.
+  if (openShadow) {
+    const pagePath = join(dir, 'dist', 'page.js');
+    writeFileSync(pagePath, readFileSync(pagePath, 'utf8').replace('attachShadow({mode:"closed"})', 'attachShadow({mode:"open"})'));
+  }
   return dir;
 }
 
@@ -33,6 +39,7 @@ export const ARTICLE_HTML = `<!doctype html><html lang="en"><head><meta charset=
 
 export const test = base.extend({
   pageAccess: [false, { option: true }],
+  openShadow: [false, { option: true }],
 
   // A local page to read from, served on a free port.
   articleUrl: [async ({}, use) => {
@@ -52,9 +59,9 @@ export const test = base.extend({
     await engines.close();
   }, { scope: 'worker' }],
 
-  context: async ({ engines, colorScheme, deviceScaleFactor, pageAccess }, use) => {
+  context: async ({ engines, colorScheme, deviceScaleFactor, pageAccess, openShadow }, use) => {
     engines.reset();
-    const extensionDir = pageAccess ? extensionCopyWithPageAccess() : EXTENSION_DIR;
+    const extensionDir = pageAccess ? extensionCopyWithPageAccess({ openShadow }) : EXTENSION_DIR;
     const profile = mkdtempSync(join(tmpdir(), 'voicedock-e2e-'));
     const context = await chromium.launchPersistentContext(profile, {
       channel: 'chromium',

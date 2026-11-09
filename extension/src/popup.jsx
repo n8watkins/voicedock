@@ -18,7 +18,8 @@ import {
   voicesUrl,
 } from './shared.js';
 import { EngineMono, EngineStatus, Icon, useEngines } from './ui.jsx';
-import { buildVoiceCatalog, ENGINE_ORDER, filterVoices, languagesIn, rowForProfile, voiceKey } from './voices.js';
+import { buildVoiceCatalog, ENGINE_ORDER, rowForProfile, voiceKey } from './voices.js';
+import { EnginePills, VoiceList } from './picker.jsx';
 
 const SPEEDS = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.8, 2.0, 2.25, 2.5];
 const IDLE_PLAYBACK = { isPlaying: false, isPaused: false, progress: null, engine: null };
@@ -38,11 +39,10 @@ function openSettings(hash = 'settings') {
   window.close();
 }
 
-// Where an engine's "Set up" or "How to start" goes until the Voices &
-// Engines page exists: Get started has Piper's setup, Settings has each
-// engine's commands.
-function setupHash(engine, state) {
-  return engine === 'piper' && state === 'missing' ? 'welcome' : 'settings';
+// Where an engine's "Set up" or "How to start" goes: the setup steps for that
+// engine on the Settings page.
+function setupHash(engine) {
+  return engine === 'browser' ? 'settings' : `settings:${engine}`;
 }
 
 function sendMessage(message) {
@@ -190,7 +190,7 @@ function PopupApp() {
       nextList = list.filter((v) => v !== row.id);
     } else {
       if (list.length >= MAX_FAVORITES) {
-        setNote({ tone: 'warn', text: `You have ${MAX_FAVORITES} ${engineLabel(row.engine)} favorites. Unstar one to add another.` });
+        setNote({ tone: 'warn', text: `${MAX_FAVORITES} ${engineLabel(row.engine)} favorites max. Unstar one first.` });
         return;
       }
       nextList = [...list, row.id];
@@ -211,14 +211,14 @@ function PopupApp() {
     const settings = normalizeProfile({ ...(active || defaultProfile()), engine: row.engine, voice: row.id });
     const response = await sendMessage({ type: 'test-voice', text: `This is ${row.name === 'Automatic' ? 'the Basic voice' : row.name}, reading with ${engineLabel(row.engine)}.`, settings });
     if (response && !response.ok) setNote({ tone: 'err', text: response.error || 'That voice could not play.' });
-    else if (response?.fellBack) setNote({ tone: 'warn', text: `${engineLabel(row.engine)} isn't running, so the Basic voice played instead.` });
+    else if (response?.fellBack) setNote({ tone: 'warn', text: `${engineLabel(row.engine)} isn't running, so the Basic voice played.` });
   }
 
   async function readSelection() {
     setReadHint('');
     const response = await sendMessage({ type: 'read-active-tab' });
-    if (response?.reason === 'no-selection') setReadHint('Select text on the page first');
-    else if (response?.reason === 'no-page') setReadHint("VoiceDock can't read this page");
+    if (response?.reason === 'no-selection') setReadHint('Select text first');
+    else if (response?.reason === 'no-page') setReadHint("Can't read this page");
     else if (response && !response.ok) setNote({ tone: 'err', text: response.error || 'Nothing could read that.' });
   }
 
@@ -250,7 +250,7 @@ function PopupApp() {
     const trimmed = name.trim();
     if (!trimmed) return false;
     if (profiles.length >= MAX_PROFILES) {
-      setNote({ tone: 'warn', text: `You have ${MAX_PROFILES} profiles, the most VoiceDock keeps. Delete one in Settings first.` });
+      setNote({ tone: 'warn', text: `${MAX_PROFILES} profiles max. Delete one in Settings first.` });
       return false;
     }
     if (profiles.some((p) => p.name.toLowerCase() === trimmed.toLowerCase())) {
@@ -279,7 +279,7 @@ function PopupApp() {
         activeId={active?.id}
         onSelect={selectProfile}
         onAdd={() => (profiles.length >= MAX_PROFILES
-          ? setNote({ tone: 'warn', text: `You have ${MAX_PROFILES} profiles, the most VoiceDock keeps. Delete one in Settings first.` })
+          ? setNote({ tone: 'warn', text: `${MAX_PROFILES} profiles max. Delete one in Settings first.` })
           : setNewProfileOpen(true))}
       />
       {newProfileOpen && <NewProfileForm onSave={createProfile} onClose={() => setNewProfileOpen(false)} />}
@@ -294,8 +294,8 @@ function PopupApp() {
         <p className="fallback-line" role="status">
           <Icon name="warn" size="s" />
           <span>
-            {fallback ? 'The Basic voice reads' : 'Nothing reads'} until {engineLabel(engine)} is ready.{' '}
-            <button type="button" className="link-btn" onClick={() => openSettings(setupHash(engine, engineState))}>
+            {fallback ? 'Basic voice reads' : 'Nothing reads'} until {engineLabel(engine)} runs.{' '}
+            <button type="button" className="link-btn" onClick={() => openSettings(setupHash(engine))}>
               {engineState === 'missing' ? 'Set it up' : 'How to start'}
             </button>
           </span>
@@ -338,7 +338,7 @@ function PopupApp() {
 
       <nav className="dock" aria-label="Engines">
         {ENGINE_ORDER.map((id) => (
-          <button key={id} type="button" className="dock-cell" onClick={() => openSettings(id === 'browser' ? 'settings' : setupHash(id, engines[id].state))} title={`${engineLabel(id)}: ${STATUS_LABEL[engines[id].state]}`}>
+          <button key={id} type="button" className="dock-cell" onClick={() => openSettings(setupHash(id))} title={`${engineLabel(id)}: ${STATUS_LABEL[engines[id].state]}`}>
             <span className="dock-name">{id === 'browser' ? 'Basic' : engineLabel(id)}</span>
             <EngineStatus state={engines[id].state} variant="compact" short />
           </button>
@@ -356,7 +356,7 @@ function PopupApp() {
           onChoose={chooseVoice}
           onFavorite={toggleFavorite}
           onPreview={preview}
-          onSetup={(id) => openSettings(setupHash(id, engines[id].state))}
+          onSetup={(id) => openSettings(setupHash(id))}
           onClose={() => setPickerOpen(false)}
         />
       )}
@@ -393,7 +393,7 @@ function NewProfileForm({ onSave, onClose }) {
         ref={ref}
         type="text"
         maxLength={40}
-        placeholder="New profile name, e.g. Audiobooks"
+        placeholder="Name, e.g. Audiobooks"
         aria-label="New profile name"
         value={name}
         onChange={(e) => setName(e.target.value)}
@@ -481,130 +481,35 @@ function Keys({ combo }) {
   );
 }
 
+// The voice picker sheet: engine pills, then that engine's voices.
 function VoicePicker({ rows, engines, favoritesByEngine, current, previewKey, playing, onChoose, onFavorite, onPreview, onSetup, onClose }) {
-  const [query, setQuery] = useState('');
-  const [language, setLanguage] = useState('');
-  const searchRef = useRef(null);
-  useEffect(() => { searchRef.current?.focus(); }, []);
+  const [engine, setEngine] = useState(current.engine || 'browser');
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); onClose(); } };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
-
-  const isFav = (row) => row.id !== '' && favoritesFor(favoritesByEngine, row.engine).includes(row.id);
-  const visible = filterVoices(rows, { query, language });
-  const filtering = Boolean(query.trim() || language);
-  const favorites = visible.filter((r) => isFav(r) && engineUsable(engines[r.engine]?.state));
-  const total = rows.filter((r) => !(r.engine === 'browser' && r.id === '')).length;
-  const currentKey = voiceKey(current);
-
-  const row = (r) => (
-    <VoiceRow
-      key={voiceKey(r)}
-      row={r}
-      selected={voiceKey(r) === currentKey}
-      favorite={isFav(r)}
-      previewing={previewKey === voiceKey(r)}
-      playing={playing}
-      showEngine={false}
-      onChoose={onChoose}
-      onFavorite={onFavorite}
-      onPreview={onPreview}
-    />
-  );
-
-  const groups = [];
-  if (favorites.length) {
-    groups.push(
-      <section key="fav" aria-label="Favorites">
-        <div className="grp">Favorites</div>
-        {favorites.map((r) => (
-          <VoiceRow key={`fav-${voiceKey(r)}`} row={r} selected={voiceKey(r) === currentKey} favorite previewing={previewKey === voiceKey(r)} playing={playing} showEngine onChoose={onChoose} onFavorite={onFavorite} onPreview={onPreview} />
-        ))}
-      </section>,
-    );
-  }
-  for (const id of ENGINE_ORDER) {
-    const state = engines[id]?.state || 'checking';
-    const list = visible.filter((r) => r.engine === id);
-    const ready = engineUsable(state);
-    if (filtering && ready && list.length === 0) continue;
-    const count = rows.filter((r) => r.engine === id && r.id !== '').length;
-    groups.push(
-      <section key={id} aria-label={engineLabel(id)}>
-        <div className="grp">
-          <span>{engineLabel(id)}</span>
-          <span className="count">{ready && count ? `${count} voice${count === 1 ? '' : 's'}` : ''}</span>
-          <EngineStatus state={state} short />
-        </div>
-        {ready && list.map(row)}
-        {state === 'checking' && <div className="grp-note"><span>Checking {engineLabel(id)}…</span><Icon name="loader" size="s" spin /></div>}
-        {(state === 'stopped' || state === 'missing') && (
-          <div className="grp-note">
-            <span>{state === 'missing' ? `${engineLabel(id)} is not installed yet.` : `${engineLabel(id)} is installed but not running.`}</span>
-            <button type="button" className="vd-btn quiet sm" onClick={() => onSetup(id)}>{state === 'missing' ? 'Set up' : 'How to start'}</button>
-          </div>
-        )}
-      </section>,
-    );
-  }
-
   return (
     <div className="picker" role="dialog" aria-modal="true" aria-label="Choose a voice">
       <div className="pk-head">
         <button type="button" className="vd-icon-btn" aria-label="Back" onClick={onClose}><Icon name="chevron-left" /></button>
         <b>Choose a voice</b>
       </div>
-      <div className="pk-tools">
-        <label className="search">
-          <Icon name="search" size="s" />
-          <input ref={searchRef} type="search" placeholder={`Search ${total} voice${total === 1 ? '' : 's'}`} aria-label="Search voices" value={query} onChange={(e) => setQuery(e.target.value)} />
-        </label>
-        <select aria-label="Language" value={language} onChange={(e) => setLanguage(e.target.value)}>
-          <option value="">All languages</option>
-          {languagesIn(rows).map((l) => <option key={l} value={l}>{l}</option>)}
-        </select>
-      </div>
-      <div className="pk-list" role="listbox" aria-label="Voices">
-        {groups.length ? groups : <div className="grp-note">No voices match.</div>}
-      </div>
-    </div>
-  );
-}
-
-function VoiceRow({ row, selected, favorite, previewing, playing, showEngine, onChoose, onFavorite, onPreview }) {
-  const canFavorite = row.id !== '';
-  return (
-    <div
-      className="vrow"
-      role="option"
-      tabIndex={0}
-      aria-selected={selected}
-      onClick={() => onChoose(row)}
-      onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) { e.preventDefault(); onChoose(row); } }}
-    >
-      {canFavorite
-        ? (
-          <button type="button" className={`star${favorite ? ' on' : ''}`} aria-label={favorite ? `Remove ${row.name} from favorites` : `Add ${row.name} to favorites`} aria-pressed={favorite} onClick={(e) => { e.stopPropagation(); onFavorite(row); }}>
-            <Icon name="star" size="s" />
-          </button>
-        )
-        : <span className="star-gap" aria-hidden="true" />}
-      <span className="vtext">
-        <span className="nm">{row.name}{selected && <Icon name="check" size="s" className="sel" />}</span>
-        <span className="mt">{row.meta}{showEngine ? ` · ${engineLabel(row.engine)}` : ''}</span>
-      </span>
-      {row.tag ? <span className="vd-tag">{row.tag}</span> : <span />}
-      <button
-        type="button"
-        className={`pv${previewing ? ' on' : ''}${previewing && playing ? ' live' : ''}`}
-        aria-label={previewing ? `Stop the ${row.name} sample` : `Play a sample of ${row.name}`}
-        title={previewing ? 'Stop' : 'Play a sample'}
-        onClick={(e) => { e.stopPropagation(); onPreview(row); }}
-      >
-        <Icon name={previewing ? 'stop' : 'play'} size="s" />
-      </button>
+      <div className="pk-engines"><EnginePills engines={engines} value={engine} onChange={setEngine} /></div>
+      <VoiceList
+        rows={rows}
+        engine={engine}
+        state={engines[engine]?.state || 'checking'}
+        favorites={favoritesFor(favoritesByEngine, engine)}
+        currentKey={voiceKey(current)}
+        previewKey={previewKey}
+        playing={playing}
+        onChoose={onChoose}
+        onFavorite={onFavorite}
+        onPreview={onPreview}
+        onSetup={onSetup}
+        autoFocus
+      />
     </div>
   );
 }

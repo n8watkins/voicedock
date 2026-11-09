@@ -12,90 +12,6 @@ body {
   padding: 0 0 44px;
 }
 
-/* ─── Page Wrapper ───────────────────────────────────────────────────────────── */
-.page {
-  max-width: 620px;
-  margin: 0 auto;
-  padding: 0 16px;
-}
-code, kbd, pre { font-family: var(--f-mono); }
-
-/* ─── Page Header ────────────────────────────────────────────────────────────── */
-.page-header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 16px 0 13px;
-  border-bottom: 1px solid var(--line);
-  margin-bottom: 0;
-}
-
-.page-icon {
-  width: 36px;
-  height: 36px;
-  flex-shrink: 0;
-}
-
-.page-header-body { flex: 1; min-width: 0; }
-
-.page-header-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 10px;
-  margin-bottom: 4px;
-}
-
-.page-title {
-  font: 700 20px/1.1 var(--f-display);
-  letter-spacing: -0.01em;
-  color: var(--ink);
-}
-
-.page-tagline {
-  font-size: 12px;
-  color: var(--faint);
-  line-height: 1.5;
-}
-.page-tagline .link { font-size: 12px; }
-
-.page-version {
-  font-size: 12px;
-  color: var(--faint);
-}
-
-.header-engine { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--muted); }
-
-/* ─── Tabs ───────────────────────────────────────────────────────────────────── */
-.tabs {
-  display: flex;
-  gap: 0;
-  /* The track is an inset shadow, not a border, so each tab's own bottom
-     border paints over it inside the scroll box (a negative margin would be
-     clipped by overflow). */
-  box-shadow: inset 0 -2px 0 var(--line);
-  margin-bottom: 18px;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.tab {
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
-  padding: 11px 16px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--muted);
-  cursor: pointer;
-  letter-spacing: 0.01em;
-  transition: color 0.15s, border-color 0.15s;
-  white-space: nowrap;
-}
-.tab:hover  { color: var(--ink); }
-.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
-.tab:focus-visible { outline-offset: -2px; }
-
 /* ─── Tab Panels ─────────────────────────────────────────────────────────────── */
 .tab-panel { display: block; }
 .tab-panel.hidden { display: none; }
@@ -196,7 +112,7 @@ code, kbd, pre { font-family: var(--f-mono); }
   appearance: none;
   background: var(--surface);
   color: var(--ink);
-  border: 1px solid var(--line);
+  border: 1px solid var(--control);
   border-radius: 8px;
   padding: 7px 10px;
   font-family: var(--f-ui);
@@ -486,7 +402,6 @@ code, kbd, pre { font-family: var(--f-mono); }
   display: block;
   font-size: 12px;
   color: var(--faint);
-  font-family: var(--f-mono);
   margin-top: 2px;
   white-space: nowrap;
   overflow: hidden;
@@ -618,15 +533,6 @@ code, kbd, pre { font-family: var(--f-mono); }
 }
 
 /* ─── Credits Tab ────────────────────────────────────────────────────────────── */
-.credits-identity {
-  text-align: center;
-  padding: 28px 0 24px;
-  border-bottom: 1px solid var(--line);
-  margin-bottom: 24px;
-}
-.credits-logo  { font-size: 40px; margin-bottom: 10px; }
-.credits-title { font-size: 20px; font-weight: 700; color: var(--accent); margin-bottom: 10px; }
-.credits-tagline { font-size: 13px; color: var(--muted); max-width: 480px; margin: 0 auto; line-height: 1.6; }
 .link { color: var(--accent); text-decoration: none; }
 .link:hover { text-decoration: underline; }
 
@@ -640,13 +546,6 @@ code, kbd, pre { font-family: var(--f-mono); }
   margin-bottom: 14px;
 }
 .credits-body { font-size: 14px; color: var(--ink); line-height: 1.7; margin-bottom: 16px; }
-
-.credits-readme-btn {
-  display: inline-block;
-  text-decoration: none;
-  padding: 10px 20px;
-  font-size: 14px;
-}
 
 /* How it works - numbered flow list */
 .how-it-works-list {
@@ -711,33 +610,6 @@ code, kbd, pre { font-family: var(--f-mono); }
 .dep-card:hover .dep-name { color: var(--accent); }
 .dep-desc { font-size: 12px; color: var(--faint); }
 
-.credits-license {
-  font-size: 12px;
-  color: var(--faint);
-  margin-top: 12px;
-}
-
-/* GitHub dep-card variant */
-.dep-card-github {
-  flex-direction: row;
-  align-items: center;
-  gap: 12px;
-  min-width: unset;
-  max-width: 320px;
-}
-.dep-card-github-icon svg { width: 22px; height: 22px; }
-.dep-card-github-icon {
-  color: var(--ink);
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-}
-.dep-card-github-text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
 /* ─── Modal ──────────────────────────────────────────────────────────────────── */
 .modal-overlay {
   position: fixed;
@@ -773,27 +645,6 @@ code, kbd, pre { font-family: var(--f-mono); }
   justify-content: flex-end;
 }
 
-/* ─── Keyboard Shortcuts ─────────────────────────────────────────────────────── */
-.settings-shortcut-disclaimer {
-  margin-bottom: 14px;
-}
-
-.shortcut-manager-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 10px 0 12px;
-  border-bottom: 1px solid var(--line);
-  margin-bottom: 2px;
-}
-
-.shortcut-manager-actions {
-  display: flex;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
 .shortcut-row {
   display: flex;
   align-items: center;
@@ -824,9 +675,7 @@ code, kbd, pre { font-family: var(--f-mono); }
   display: inline-block;
 }
 .shortcut-bind-btn:hover { background: var(--surface-2); }
-.shortcut-bind-btn.is-unset {
-  color: var(--err);
-}
+.shortcut-bind-btn.is-unset { color: var(--err); }
 
 /* ─── Voice Quality Badge ────────────────────────────────────────────────────── */
 /* Neutral: a quality tier is information, not an alarm. */
@@ -839,42 +688,7 @@ code, kbd, pre { font-family: var(--f-mono); }
   color: var(--muted);
 }
 
-/* ─── Engines (VoiceDock) ───────────────────────────────────────────────────── */
-.engine-switch {
-  display: inline-flex;
-  gap: 4px;
-  padding: 3px;
-  margin-bottom: 14px;
-  background: var(--surface-2);
-  border: 0;
-  border-radius: 9px;
-}
-.engine-switch-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 6px 14px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--muted);
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-}
-.engine-switch-btn:hover { color: var(--ink); }
-.engine-switch-btn.active { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgb(0 0 0 / 0.12); }
-.engine-switch-count {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--faint);
-  background: var(--surface-2);
-  border-radius: 8px;
-  padding: 0 6px;
-  min-width: 18px;
-  text-align: center;
-}
+
 .lang-badge {
   display: inline-flex;
   font: 500 11px/1 var(--f-ui);
@@ -933,30 +747,173 @@ code, kbd, pre { font-family: var(--f-mono); }
 }
 .welcome-engines .setting-desc { margin-top: 0; }
 .welcome-engine-name { font-size: 13px; font-weight: 600; color: var(--ink); }
-.welcome-steps { padding-left: 20px; display: flex; flex-direction: column; gap: 10px; margin-bottom: 11px; }
-.welcome-steps li { font-size: 13px; color: var(--ink); line-height: 1.55; }
-.welcome-steps li::marker { color: var(--accent); font-weight: 700; }
-.welcome-code {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  margin-top: 8px;
-  background: var(--code-bg);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 10px 12px;
-}
-.welcome-code pre {
-  flex: 1;
-  min-width: 0;
-  overflow-x: auto;
-  font-family: var(--f-mono);
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--ink);
-}
 .welcome-done { margin-top: 4px; font-size: 13px; color: var(--ok); }
 @media (max-width: 560px) {
   .welcome-engines li { grid-template-columns: 1fr auto; }
   .welcome-engines .setting-desc { grid-column: 1 / -1; }
 }
+
+/* ─── Layout: side nav and a wide main column ──────────────────────────────── */
+/* About 1080 px wide: a 210 px nav and a main column up to 830 px. Below
+   760 px the nav becomes a row of tabs above the content. */
+.page {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 0 24px;
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr);
+  gap: 36px;
+  align-items: start;
+}
+code, kbd, pre { font-family: var(--f-mono); }
+
+.side { position: sticky; top: 0; padding: 22px 0 16px; display: grid; gap: 18px; }
+.brand { display: flex; align-items: center; gap: 10px; padding: 0 8px; }
+.page-icon { width: 34px; height: 34px; flex-shrink: 0; }
+.page-title { font: 700 19px/1.1 var(--f-display); letter-spacing: -0.01em; color: var(--ink); }
+.page-version { font-size: 12px; color: var(--muted); }
+
+.side-nav { display: grid; gap: 2px; }
+.tab {
+  display: flex; align-items: center; gap: 10px;
+  background: none; border: 0; border-radius: 9px;
+  padding: 8px 10px; text-align: left;
+  font: 600 13px/1.2 var(--f-ui); color: var(--muted);
+  cursor: pointer; white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+}
+.tab:hover { background: var(--surface-2); color: var(--ink); }
+.tab.active { background: var(--accent-soft); color: var(--accent); }
+.tab:focus-visible { outline-offset: -2px; }
+
+.side-engines { display: grid; gap: 6px; padding: 12px 10px 0; border-top: 1px solid var(--line); }
+.header-engine { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; font-weight: 600; color: var(--ink); }
+
+.main { padding: 22px 0 0; min-width: 0; max-width: 830px; }
+
+@media (max-width: 760px) {
+  .page { grid-template-columns: minmax(0, 1fr); gap: 0; padding: 0 16px; }
+  .side { position: static; padding: 14px 0 0; gap: 10px; }
+  .side-nav { display: flex; overflow-x: auto; scrollbar-width: none; gap: 4px; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+  .side-engines { display: flex; gap: 14px; border-top: 0; padding: 0 8px; }
+  .header-engine { justify-content: flex-start; }
+  .main { padding-top: 16px; }
+}
+
+/* ─── Section headings with icons ──────────────────────────────────────────── */
+.section-title, .settings-group-title {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em;
+  color: var(--muted);
+}
+.section-title { margin: 20px 0 10px; }
+.section-title:first-of-type { margin-top: 4px; }
+.section-title svg, .settings-group-title svg { color: var(--accent); }
+
+/* ─── Profile form ─────────────────────────────────────────────────────────── */
+.form-stack { display: grid; gap: 14px; margin-bottom: 14px; }
+.field { display: grid; gap: 6px; min-width: 0; }
+.field .form-label { display: flex; justify-content: space-between; }
+.field .form-label b { color: var(--ink); font-weight: 600; text-transform: none; letter-spacing: 0; font-variant-numeric: tabular-nums; }
+/* Speed and volume side by side: short, related sliders. */
+.form-two { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+@media (max-width: 520px) { .form-two { grid-template-columns: 1fr; } }
+
+.voice-field { display: grid; gap: 8px; }
+.vf-button {
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+  border: 1px solid var(--control); border-radius: 8px; background: var(--surface);
+  padding: 8px 10px; color: var(--ink); cursor: pointer; font: inherit;
+}
+.vf-button:hover { border-color: var(--line-strong); }
+.vf-button[aria-expanded="true"] { border-color: var(--accent); }
+.vf-name { font-weight: 600; }
+.vf-meta { color: var(--muted); font-size: 12px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vf-pop {
+  border: 1px solid var(--line); border-radius: 10px; background: var(--surface);
+  box-shadow: var(--shadow); padding: 2px 0 6px; max-height: 340px; display: flex; flex-direction: column;
+}
+.vf-pop .pk-list { max-height: 260px; }
+.vf-pop .setup-note { margin: 8px; }
+
+/* ─── Profiles ─────────────────────────────────────────────────────────────── */
+.profile-card-header { display: flex; align-items: center; gap: 12px; }
+.active-tag { margin-left: 8px; background: var(--accent-soft); color: var(--accent); }
+.profile-card-btns { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+
+/* ─── Voices ───────────────────────────────────────────────────────────────── */
+.voices-engines { margin-bottom: 14px; }
+/* Two columns: short, uniform rows, and Kokoro lists 54. */
+.voice-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 8px; }
+.voice-grid .no-items { grid-column: 1 / -1; }
+.vd-icon-btn.danger:hover:not(:disabled) { color: var(--err); background: var(--err-soft); }
+.favs-count { display: inline-flex; align-items: center; gap: 4px; }
+.voices-offline-banner .btn { margin-left: auto; }
+
+/* ─── Settings: engine cards ───────────────────────────────────────────────── */
+/* Two columns: Piper and Kokoro are parallel, short and worth comparing. */
+.engine-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+.engine-card {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  padding: 14px 15px; display: grid; gap: 12px; align-content: start;
+}
+.engine-card.state-stopped { border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); }
+.engine-card-head { display: flex; align-items: center; gap: 10px; }
+.engine-card-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.engine-card-title b { font: 700 16px/1.2 var(--f-display); }
+.engine-facts { display: grid; grid-template-columns: 74px 1fr; gap: 4px 10px; font-size: 12px; }
+.engine-facts dt { color: var(--muted); font-weight: 600; }
+.engine-facts dd { color: var(--ink); }
+.engine-facts code { font-size: 12px; }
+.engine-card-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* ─── Setup guide ──────────────────────────────────────────────────────────── */
+.setup-guide { display: grid; gap: 12px; }
+.setup-tabs { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+.os-tabs { display: inline-flex; gap: 2px; padding: 3px; border-radius: 9px; background: var(--surface-2); }
+.os-tab {
+  display: inline-flex; align-items: center; gap: 6px; border: 0; border-radius: 7px;
+  padding: 5px 11px; background: transparent; color: var(--muted); font: 600 12px/1.2 var(--f-ui); cursor: pointer;
+}
+.os-tab:hover { color: var(--ink); }
+.os-tab.active { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgb(0 0 0 / 0.12); }
+.setup-facts { font-size: 12px; color: var(--muted); }
+.setup-steps { list-style: none; display: grid; gap: 12px; }
+.setup-steps li { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 10px; }
+.step-num {
+  width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--accent-soft); color: var(--accent); font-weight: 700; font-size: 12px;
+}
+.step-body { display: grid; gap: 4px; min-width: 0; }
+.step-body b { font-size: 13px; }
+.step-body .setting-desc { margin: 0; }
+.cmd {
+  display: flex; align-items: flex-start; gap: 8px; margin-top: 4px;
+  background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 8px 8px 12px;
+}
+.cmd pre { flex: 1; min-width: 0; font-size: 12px; line-height: 1.6; color: var(--ink); white-space: pre-wrap; word-break: break-word; }
+.setup-worked { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--ok); }
+.setup-worked b { font-weight: 700; }
+.setup-states { display: grid; gap: 6px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); }
+.setup-states p { font-size: 12px; color: var(--ink); line-height: 1.6; }
+.setup-states .vd-status { margin-right: 4px; vertical-align: 1px; }
+
+/* ─── Get started ──────────────────────────────────────────────────────────── */
+.welcome-engines li { grid-template-columns: auto 90px auto minmax(0, 1fr) auto; }
+.welcome-done { display: flex; align-items: center; gap: 6px; color: var(--ok); }
+
+/* ─── Shortcuts ────────────────────────────────────────────────────────────── */
+.shortcut-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; border-top: 1px solid var(--line); padding-top: 10px; margin-top: 4px; }
+.shortcut-actions .setting-desc { margin: 0 auto 0 0; }
+
+/* ─── How it works, credits ────────────────────────────────────────────────── */
+.flow-step svg { width: 14px; height: 14px; }
+.about-readme { display: inline-flex; margin-top: 20px; }
+.credits-deps { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+.dep-card { flex-direction: row; align-items: center; gap: 12px; min-width: 0; }
+.dep-logo { width: 34px; height: 34px; border-radius: 9px; background: var(--surface-2); color: var(--accent); display: grid; place-items: center; flex: none; }
+.dep-logo .vd-mono { width: 34px; height: 34px; }
+.dep-text { display: grid; gap: 2px; min-width: 0; }
+.dep-card-github { max-width: 360px; }
+.dep-card-github .dep-logo { color: var(--ink); }
+.form-input::placeholder { color: var(--muted); opacity: 1; }

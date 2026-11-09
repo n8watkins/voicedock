@@ -15,7 +15,9 @@ export const ENGINES = {
     mono: 'Pi',
     baseUrl: 'http://127.0.0.1:7477',
     local: true,
-    blurb: 'The light default: fast local voices, about 20 MB of RAM when idle (Node.js server on port 7477).',
+    blurb: 'Fast, light local voices.',
+    short: 'Natural and light: about 20 MB idle.',
+    facts: { memory: '20 MB idle, 60-150 MB reading', download: '90 MB with one voice' },
   },
   kokoro: {
     id: 'kokoro',
@@ -23,7 +25,9 @@ export const ENGINES = {
     mono: 'Ko',
     baseUrl: 'http://127.0.0.1:7478',
     local: true,
-    blurb: 'Optional: more natural voices in 9 languages. A 338 MB download, then about 500-600 MB of RAM while it reads; it starts when you read and stops after 30 idle minutes (port 7478).',
+    blurb: 'The most natural voices, 54 in 9 languages.',
+    short: 'Most natural: runs only while you read.',
+    facts: { memory: '500-600 MB reading, none idle', download: '338 MB' },
   },
   browser: {
     id: 'browser',
@@ -31,7 +35,9 @@ export const ENGINES = {
     mono: 'Ba',
     baseUrl: null,
     local: false,
-    blurb: "Chrome's built-in speech: no setup, always available, and the fallback when Piper or Kokoro isn't running. VoiceDock picks a voice that runs on this device.",
+    blurb: "Chrome's built-in speech, the fallback.",
+    short: 'Built into Chrome. No setup.',
+    facts: { memory: 'none', download: 'none' },
   },
 };
 export const ENGINE_IDS = ['piper', 'kokoro', 'browser'];
