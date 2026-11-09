@@ -6,6 +6,7 @@
   "scripts": {
     "prepare": "git config core.hooksPath .githooks || true",
     "build": "node tools/build-extension-ui.mjs",
+    "package": "node tools/package-store.mjs",
     "test": "node --test && npm run test:kokoro",
     "version:patch": "node tools/bump-version.mjs patch",
     "version:minor": "node tools/bump-version.mjs minor",
@@ -15,6 +16,7 @@
     "memory-report": "node tools/memory-report.mjs",
     "release": "release-kit release",
     "release:check": "release-kit check && npm ci --prefix servers/piper && npm test && npm run build",
+    "release:artifacts": "node tools/package-store.mjs --out release-artifacts",
     "test:kokoro": "python3 -m unittest discover -s servers/kokoro/tests"
   },
   "dependencies": {
