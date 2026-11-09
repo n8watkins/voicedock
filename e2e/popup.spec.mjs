@@ -35,6 +35,8 @@ test('popup: the voice picker shows engine pills, then that engine\'s voices', a
   await expect(picker.locator('section[aria-label="Favorites"] .vrow .nm')).toHaveText(['Heart']);
   await expect(picker.getByRole('option', { name: /Davefx/ })).toHaveCount(0);
   await expect(picker.getByRole('searchbox', { name: 'Search voices' })).toHaveAttribute('placeholder', 'Search 6 Kokoro voices');
+  // The search box takes focus on open; wait for it so the shot is stable.
+  await expect(picker.getByRole('searchbox', { name: 'Search voices' })).toBeFocused();
   await page.locator('.pk-list').evaluate((el) => { el.scrollTop = 0; });
   await expect(shot(page)).toHaveScreenshot('popup-picker.png');
 });
