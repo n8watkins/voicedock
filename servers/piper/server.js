@@ -37,8 +37,22 @@ const PIPER_BIN  = process.env.PIPER_BIN || DEFAULT_PIPER_BIN;
 const VOICE_DIR  = process.env.VOICE_DIR || path.join(__dirname, "piper", "voices");
 const OUTPUT_DIR = process.env.OUTPUT_DIR || path.join(__dirname, "output");
 
-// Default voice model (change to match your downloaded .onnx file)
-const DEFAULT_VOICE = "en_US-ryan-high.onnx";
+// The preferred default voice. When it isn't installed (npm run setup installs
+// en_US-amy-medium), the default is the first installed voice instead, so
+// "Default voice" always reads with something that is on disk.
+const PREFERRED_VOICE = "en_US-ryan-high.onnx";
+
+async function installedVoices() {
+  try {
+    return (await fs.readdir(VOICE_DIR)).filter(f => f.endsWith(".onnx")).sort();
+  } catch (_) {
+    return [];
+  }
+}
+
+function defaultVoiceFrom(voices) {
+  return voices.includes(PREFERRED_VOICE) ? PREFERRED_VOICE : (voices[0] || PREFERRED_VOICE);
+}
 
 // ─── App Setup ────────────────────────────────────────────────────────────────
 const app = express();
@@ -209,7 +223,7 @@ function runPiper({ text, outputPath, voiceModel }) {
 // ─── POST /tts ────────────────────────────────────────────────────────────────
 app.post("/tts", async (req, res) => {
   const text  = req.body?.text;
-  const voice = (req.body?.voice && req.body.voice.trim()) || DEFAULT_VOICE;
+  const voice = (req.body?.voice && req.body.voice.trim()) || defaultVoiceFrom(await installedVoices());
 
   // Validate text
   const validationError = validateText(text);
@@ -286,8 +300,7 @@ app.post("/tts", async (req, res) => {
 // ─── GET /voices  (list available voice models + sizes) ──────────────────────
 app.get("/voices", async (_req, res) => {
   try {
-    const files = await fs.readdir(VOICE_DIR);
-    const voices = files.filter(f => f.endsWith(".onnx"));
+    const voices = await installedVoices();
 
     // Stat each .onnx file for real on-disk size
     const sizes = {};
@@ -298,9 +311,9 @@ app.get("/voices", async (_req, res) => {
       } catch { sizes[f] = 0; }
     }));
 
-    res.json({ engine: "piper", voices, defaultVoice: DEFAULT_VOICE, sizes, voiceDir: VOICE_DIR });
+    res.json({ engine: "piper", voices, defaultVoice: defaultVoiceFrom(voices), sizes, voiceDir: VOICE_DIR });
   } catch (_) {
-    res.json({ engine: "piper", voices: [], defaultVoice: DEFAULT_VOICE, sizes: {}, voiceDir: VOICE_DIR });
+    res.json({ engine: "piper", voices: [], defaultVoice: PREFERRED_VOICE, sizes: {}, voiceDir: VOICE_DIR });
   }
 });
 
@@ -386,6 +399,7 @@ async function cleanOutputDir() {
 // ─── Start Server ─────────────────────────────────────────────────────────────
 async function start() {
   await cleanOutputDir();
+  const defaultVoice = defaultVoiceFrom(await installedVoices());
   return app.listen(PORT, HOST, () => {
     console.log(`\n🔊 VoiceDock Piper server v${version}`);
     console.log(`   Running at http://${HOST}:${PORT}`);
@@ -394,7 +408,7 @@ async function start() {
     console.log(`   Voices:  GET  http://${HOST}:${PORT}/voices`);
     console.log(`\n   Piper bin: ${PIPER_BIN}`);
     console.log(`   Voice dir: ${VOICE_DIR}`);
-    console.log(`   Default voice: ${DEFAULT_VOICE}`);
+    console.log(`   Default voice: ${defaultVoice}`);
     console.log(`\n   Press Ctrl+C to stop.\n`);
     const warning = exposureWarning(HOST, PORT);
     if (warning) console.warn(warning + "\n");

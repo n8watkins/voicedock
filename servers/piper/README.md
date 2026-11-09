@@ -168,7 +168,7 @@ Generate speech from text.
 }
 ```
 
-`voice` is optional - defaults to `en_US-ryan-high.onnx`. The selected `.onnx` file and matching `.onnx.json` config must both exist in the voices folder.
+`voice` is optional: it defaults to `en_US-ryan-high.onnx` when that voice is installed, and otherwise to the first installed voice. The selected `.onnx` file and matching `.onnx.json` config must both exist in the voices folder.
 
 **Response:** `audio/wav` binary stream.
 
@@ -182,7 +182,7 @@ Generate speech from text.
 List available voice models in the `piper/voices/` directory.
 
 ```json
-{ "engine": "piper", "voices": ["en_US-amy-medium.onnx", "en_GB-alan-medium.onnx"], "defaultVoice": "en_US-ryan-high.onnx" }
+{ "engine": "piper", "voices": ["en_US-amy-medium.onnx", "en_GB-alan-medium.onnx"], "defaultVoice": "en_GB-alan-medium.onnx" }
 ```
 
 ---
