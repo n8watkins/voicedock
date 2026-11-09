@@ -449,6 +449,7 @@ function showTray() {
     clearInterval(refreshTimer);
     refreshTimer = setInterval(refresh, REFRESH_MS);
   }).catch((err) => {
+    if (systray !== tray) return; // hidden while it started: nothing to report
     console.error('VoiceDock tray failed to start:', (err && err.message) || err);
     log(`Failed to start: ${(err && err.message) || err}`);
     releaseLock();
