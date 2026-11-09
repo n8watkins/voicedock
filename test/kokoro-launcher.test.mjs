@@ -230,3 +230,14 @@ test('GET /engines/kokoro/voices answers without starting Kokoro', async () => {
     app.locals.kokoro = real;
   }
 });
+
+test('the model load time is remembered after Kokoro stops, for the next estimate', async () => {
+  const h = harness();
+  const launcher = h.launcher;
+  await launcher.start();
+  const fakeHealth = { status: 'ok', modelLoaded: true, modelLoadMs: 1450 };
+  assert.equal((await launcher.status(fakeHealth)).modelLoadMs, 1450);
+  launcher.stop();
+  assert.equal((await launcher.status(null)).modelLoadMs, 1450, 'still known while stopped');
+  h.cleanup();
+});

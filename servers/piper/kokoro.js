@@ -173,6 +173,7 @@ function createKokoroLauncher({
   let starting = null;   // the in-flight start, shared by concurrent callers
   let startedAt = null;
   let lastStartMs = null; // process start to first /health answer, last time
+  let lastModelLoadMs = null; // Kokoro's last model load, kept after it stops
   let crashes = [];       // times of recent crashes (within CRASH_WINDOW_MS)
   let consecutive = 0;    // crashes since the last clean run
   let lastCrashAt = null;
@@ -349,6 +350,7 @@ function createKokoroLauncher({
   // For GET /engines. `h` is a /health answer the caller already has.
   async function status(h) {
     if (h === undefined) h = await probe();
+    if (Number.isFinite(h?.modelLoadMs)) lastModelLoadMs = h.modelLoadMs;
     const missing = setup();
     let state = "stopped";
     if (starting) state = "starting";
@@ -369,7 +371,7 @@ function createKokoroLauncher({
       setupState: setupState(missing),
       startsOnDemand: !missing && !failed,
       lastStartMs,
-      modelLoadMs: h?.modelLoadMs ?? null,
+      modelLoadMs: lastModelLoadMs,
       lastError,
       restartInSeconds: Math.ceil(backoffLeftMs() / 1000),
       health: h || null,
