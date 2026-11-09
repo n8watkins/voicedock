@@ -110,7 +110,7 @@ p { margin: 0; }
 .pp-note .vd-icon-btn { width: 22px; height: 22px; color: inherit; margin-top: -2px; }
 
 /* ─── Dock strip ───────────────────────────────────────────────────────── */
-.dock { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--line); }
+.dock { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--line); }
 .dock-cell {
   display: grid; gap: 3px; justify-items: center; padding: 9px 2px 10px;
   border: 0; border-right: 1px solid var(--line); background: transparent; color: var(--ink);

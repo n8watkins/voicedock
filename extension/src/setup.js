@@ -1,4 +1,4 @@
-// How to set up and start Piper and Kokoro, per OS: the one source for the
+// How to set up and start Piper, Kokoro and Pocket TTS, per OS: the one source for the
 // guided setup panel (Voices & Engines and Get started) and the tests. README.md says the same in
 // prose; keep them in step. Pure data, no JSX.
 
@@ -56,12 +56,24 @@ export const SETUP_STEPS = {
       { title: 'Restart VoiceDock\'s server', what: 'Tray icon, then Restart. It starts Kokoro when you read.' },
     ],
   },
+  // Kyutai's official program from VoiceDock's signed catalog: no Python, no
+  // account. The install step shows the license and terms and asks first.
+  pocket: Object.fromEntries(['windows', 'macos', 'linux'].map((os) => {
+    const dir = os === 'windows' ? 'cd voicedock\\servers\\piper' : 'cd voicedock/servers/piper';
+    const tray = os === 'macos' ? 'Menu bar icon' : 'Tray icon';
+    return [os, [
+      { title: 'Install Pocket TTS', what: 'Kyutai\'s program (8 MB), checked against the signed catalog. It shows the license and asks you to type yes.', commands: [dir, 'node engines.js install pocket'] },
+      { title: 'Download its voice model', what: 'About 222 MB, checked file by file. No account needed. Ends with "Pocket TTS is set up."', commands: ['node engines.js model pocket'] },
+      { title: 'Restart VoiceDock\'s server', what: `${tray}, then Restart. It starts Pocket TTS when you read.` },
+    ]];
+  })),
 };
 
 // What each engine needs first, and how to tell setup worked.
 export const SETUP_FACTS = {
   piper: { needs: 'Node.js 18+', size: '90 MB', worked: 'Piper shows Ready here.' },
   kokoro: { needs: 'Piper set up first (its server runs Kokoro), and uv', size: '338 MB', worked: 'Kokoro shows Starts when you read here.' },
+  pocket: { needs: 'Piper set up first (its server runs Pocket TTS); on Intel or AMD, a CPU with AVX2', size: '230 MB', worked: 'Pocket TTS shows Starts when you read here.' },
 };
 
 // How to start an engine that is set up but not running ("Installed but not
@@ -93,6 +105,11 @@ export const START_STEPS = {
   },
 };
 
+START_STEPS.pocket = Object.fromEntries(OS_IDS.map((os) => [os, [
+  START_SERVER[os],
+  { title: 'Still not running?', what: 'Check its files, then Restart from the tray icon.', commands: [os === 'windows' ? 'cd voicedock\\servers\\piper' : 'cd voicedock/servers/piper', 'node engines.js verify pocket'] },
+]]));
+
 export function startSteps(engine, os) {
   return START_STEPS[engine]?.[os] || [];
 }
@@ -101,6 +118,7 @@ export function startSteps(engine, os) {
 export const NOT_RUNNING_HELP = {
   piper: { means: 'Piper is set up, but VoiceDock\'s server is not running.' },
   kokoro: { means: 'Kokoro is set up, but VoiceDock\'s server is not running or keeps it off for now.' },
+  pocket: { means: 'Pocket TTS is set up, but VoiceDock\'s server is not running or keeps it off for now.' },
 };
 
 export function setupSteps(engine, os) {

@@ -5,9 +5,11 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   APP_NAME,
+  ENGINES,
   defaultProfile,
   engineLabel,
   engineUsable,
+  HEAVY_ENGINE_IDS,
   favoritesFor,
   MAX_FAVORITES,
   MAX_PROFILES,
@@ -59,7 +61,7 @@ function PopupApp() {
   const [activeId, setActiveId] = useState('');
   const [fallback, setFallback] = useState(true);
   const [favoritesByEngine, setFavoritesByEngine] = useState({});
-  const [voiceIds, setVoiceIds] = useState({ piper: [], kokoro: [] });
+  const [voiceIds, setVoiceIds] = useState({ piper: [], kokoro: [], pocket: [] });
   const [defaultVoiceByEngine, setDefaultVoiceByEngine] = useState({});
   const [browserVoices, setBrowserVoices] = useState([]);
   const [playback, setPlayback] = useState(IDLE_PLAYBACK);
@@ -113,9 +115,10 @@ function PopupApp() {
   const piperReady = engineUsable(engines.piper.state);
   const kokoroReady = engineUsable(engines.kokoro.state);
   const kokoroStandby = engines.kokoro.state === 'standby';
+  const pocketReady = engineUsable(engines.pocket.state);
   useEffect(() => {
     let disposed = false;
-    for (const [id, ready] of [['piper', piperReady], ['kokoro', kokoroReady]]) {
+    for (const [id, ready] of [['piper', piperReady], ['kokoro', kokoroReady], ['pocket', pocketReady]]) {
       if (!ready) continue;
       fetch(voicesUrl(id)).then((res) => (res.ok ? res.json() : null)).then((data) => {
         if (disposed || !data) return;
@@ -124,18 +127,18 @@ function PopupApp() {
       }).catch(() => {});
     }
     return () => { disposed = true; };
-  }, [piperReady, kokoroReady, kokoroStandby]);
+  }, [piperReady, kokoroReady, kokoroStandby, pocketReady]);
 
   // Opening the popup tells the hub a browser is here (the heartbeat).
   useEffect(() => { chrome.runtime.sendMessage({ type: 'presence' }).catch?.(() => {}); }, []);
 
-  // Warm up: opening the popup on a Kokoro profile starts Kokoro, so the read
-  // that usually follows doesn't wait for it.
+  // Warm up: opening the popup on a Kokoro or Pocket TTS profile starts the
+  // engine, so the read that usually follows doesn't wait for it.
   const warmed = useRef(false);
   useEffect(() => {
-    if (warmed.current || engine !== 'kokoro' || engineState !== 'standby') return;
+    if (warmed.current || !HEAVY_ENGINE_IDS.includes(engine) || engineState !== 'standby') return;
     warmed.current = true;
-    chrome.runtime.sendMessage({ type: 'warm-engine', engine: 'kokoro' }).catch?.(() => {});
+    chrome.runtime.sendMessage({ type: 'warm-engine', engine }).catch?.(() => {});
   }, [engine, engineState]);
 
   // ── Playback state, while the popup is open ─────────────────────────────
@@ -159,8 +162,9 @@ function PopupApp() {
   const rows = useMemo(() => buildVoiceCatalog({
     piper: piperReady ? voiceIds.piper : [],
     kokoro: kokoroReady ? voiceIds.kokoro : [],
+    pocket: pocketReady ? voiceIds.pocket : [],
     browser: browserVoices,
-  }), [piperReady, kokoroReady, voiceIds, browserVoices]);
+  }), [piperReady, kokoroReady, pocketReady, voiceIds, browserVoices]);
   const current = rowForProfile(rows, active, defaultVoiceByEngine);
 
   // ── Actions ─────────────────────────────────────────────────────────────
@@ -342,7 +346,7 @@ function PopupApp() {
       <nav className="dock" aria-label="Engines">
         {ENGINE_ORDER.map((id) => (
           <button key={id} type="button" className="dock-cell" onClick={() => openSettings(setupHash(id))} title={`${engineLabel(id)}: ${STATUS_LABEL[engines[id].state]}`}>
-            <span className="dock-name">{id === 'browser' ? 'Basic' : engineLabel(id)}</span>
+            <span className="dock-name">{id === 'browser' ? 'Basic' : ENGINES[id].pill || engineLabel(id)}</span>
             <EngineStatus state={engines[id].state} variant="compact" short />
           </button>
         ))}

@@ -4,11 +4,11 @@
 // An engine that can't read shows its status on its pill and offers setup.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { engineLabel, engineUsable, STATUS_SHORT } from './shared.js';
-import { NOT_RUNNING_HELP, detectOs } from './setup.js';
+import { NOT_RUNNING_HELP } from './setup.js';
 import { EngineStatus, Icon } from './ui.jsx';
 import { ENGINE_ORDER, filterVoices, languagesIn, voiceKey } from './voices.js';
 
-const PILL_LABEL = { browser: 'Basic' };
+const PILL_LABEL = { browser: 'Basic', pocket: 'Pocket' };
 
 export function EnginePills({ engines, value, onChange, ids = ENGINE_ORDER, label = 'Engine' }) {
   return (
@@ -126,7 +126,7 @@ export function EngineSetupNote({ engine, state, onSetup }) {
       <p>
         {missing
           ? `${engineLabel(engine)} isn't set up on this computer yet.`
-          : `${help ? help.means : `${engineLabel(engine)} isn't running.`} ${help ? help.fix[detectOs()] : ''}`}
+          : (help ? help.means : `${engineLabel(engine)} isn't running.`)}
       </p>
       {onSetup && (
         <button type="button" className="vd-btn primary sm" onClick={() => onSetup(engine)}>

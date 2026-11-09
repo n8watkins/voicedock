@@ -5,7 +5,7 @@
 export const APP_NAME = 'VoiceDock';
 
 // ─── Engines ─────────────────────────────────────────────────────────────────
-// Piper and Kokoro run on this computer behind one local server, the VoiceDock
+// Piper, Kokoro and Pocket TTS run on this computer behind one local server, the VoiceDock
 // hub on 127.0.0.1:7477 (docs/API.md). The extension talks only to the hub:
 // GET /engines says what is set up and what runs, and every read goes to its
 // POST /tts with the engine's id, so a new engine never needs a new host
@@ -34,6 +34,16 @@ export const ENGINES = {
     short: 'Most natural: runs only while you read.',
     facts: { memory: '500-600 MB reading, none idle', download: '338 MB' },
   },
+  pocket: {
+    id: 'pocket',
+    label: 'Pocket TTS',
+    pill: 'Pocket',
+    mono: 'Po',
+    local: true,
+    blurb: "Kyutai's natural English voices, 26 of them, quick to start.",
+    short: 'Natural English: runs only while you read.',
+    facts: { memory: '300-450 MB reading, none idle', download: '230 MB' },
+  },
   browser: {
     id: 'browser',
     label: 'Basic voice',
@@ -44,8 +54,10 @@ export const ENGINES = {
     facts: { memory: 'none', download: 'none' },
   },
 };
-export const ENGINE_IDS = ['piper', 'kokoro', 'browser'];
-export const LOCAL_ENGINE_IDS = ['piper', 'kokoro'];
+export const ENGINE_IDS = ['piper', 'kokoro', 'pocket', 'browser'];
+export const LOCAL_ENGINE_IDS = ['piper', 'kokoro', 'pocket'];
+// Engines the hub starts on the first read (and warms when the popup opens).
+export const HEAVY_ENGINE_IDS = ['kokoro', 'pocket'];
 
 // ─── Engine state: one vocabulary everywhere ────────────────────────────────
 // The hub reports each engine's state; these are the words people see.
@@ -196,6 +208,44 @@ export function basicVoiceNote({ error = '', noVoices = false } = {}) {
   return { tone: 'err', text: `The Basic voice could not read this${why ? `: ${why}` : ''}.`, fix: null };
 }
 
+// ─── Engine history ─────────────────────────────────────────────────────────
+// GET /hub/events lists the hub's last 100 engine events (starts with their
+// time to ready, stops with the reason, refusals, memory pressure). One line
+// each, for the Engines page. tone: 'ok', 'warn' or ''.
+export async function fetchEngineEvents({ fetchImpl = globalThis.fetch, timeoutMs = 2500 } = {}) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetchImpl(`${HUB_URL}/hub/events`, { signal: ctrl.signal, cache: 'no-store' });
+    if (!res.ok) return { reachable: true, events: [] };
+    const body = await res.json();
+    return { reachable: true, events: Array.isArray(body?.events) ? body.events : [] };
+  } catch (_) {
+    return { reachable: false, events: [] };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+const PRESSURE_WORDS = { ok: 'Memory is back to normal', attention: 'Memory is getting low: idle engines stop', problem: 'Memory is low: engines stay off' };
+
+export function describeEngineEvent(event) {
+  const e = event && typeof event === 'object' ? event : {};
+  const name = e.engine ? engineLabel(e.engine) : '';
+  const reason = typeof e.reason === 'string' && e.reason ? e.reason : '';
+  switch (e.type) {
+    case 'start': return { text: `${name} starting${e.manual ? ', asked by hand' : ''}`, tone: '' };
+    case 'ready': return { text: `${name} ready in ${(Math.max(0, Number(e.startedMs) || 0) / 1000).toFixed(1)} s`, tone: 'ok' };
+    case 'stop': return { text: `${name} stopped${reason ? `: ${reason}` : ''}`, tone: '' };
+    case 'unload': return { text: `${name} released its model${reason ? `: ${reason}` : ''}`, tone: '' };
+    case 'refused': return { text: `${name} not started${reason === 'low-memory' ? ': memory is low' : reason ? `: ${reason}` : ''}`, tone: 'warn' };
+    case 'start-failed': return { text: `${name} did not start${e.message ? `: ${e.message}` : ''}`, tone: 'warn' };
+    case 'pressure': return { text: PRESSURE_WORDS[e.level] || `Memory: ${e.level}`, tone: e.level === 'ok' ? 'ok' : 'warn' };
+    case 'presence-first': return { text: `The extension checked in${e.version ? ` (${e.version})` : ''}`, tone: '' };
+    default: return { text: `${name ? `${name}: ` : ''}${e.type || 'event'}`, tone: '' };
+  }
+}
+
 // Where an engine's voices are listed: the hub lists Kokoro's from its voices
 // file, so this never starts Kokoro.
 export function voicesUrl(id) {
@@ -309,7 +359,7 @@ export function migrateSettings(raw = {}) {
     set.favoritesByEngine = merged;
     remove.push('favorites');
   } else if (!byEngine) {
-    set.favoritesByEngine = { piper: [], kokoro: [] };
+    set.favoritesByEngine = { piper: [], kokoro: [], pocket: [] };
   }
 
   if (raw.settingsVersion !== SETTINGS_VERSION) set.settingsVersion = SETTINGS_VERSION;
@@ -372,6 +422,24 @@ export function kokoroVoiceDetails(voice) {
   };
 }
 
+// Pocket TTS's built-in voices read English; five come from speakers of
+// other languages (Kyutai's README).
+const POCKET_SPEAKERS = { giovanni: 'Italian', lola: 'Spanish', juergen: 'German', rafael: 'Portuguese', estelle: 'French' };
+const POCKET_VOICE_IDS = new Set([
+  'alba', 'giovanni', 'lola', 'juergen', 'rafael', 'estelle', 'anna', 'azelma', 'bill_boerst',
+  'caro_davy', 'charles', 'cosette', 'eponine', 'eve', 'fantine', 'george', 'jane', 'jean',
+  'javert', 'marius', 'mary', 'michael', 'paul', 'peter_yearsley', 'stuart_bell', 'vera',
+]);
+
+// "bill_boerst" → { name: "Bill Boerst", language: "English", accent: "" }
+export function pocketVoiceDetails(voice) {
+  const id = String(voice || '');
+  if (!POCKET_VOICE_IDS.has(id)) return null;
+  const name = id.split('_').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+  const speaker = POCKET_SPEAKERS[id] || '';
+  return { name, language: 'English', baseLanguage: 'English', accent: speaker ? `${speaker} speaker` : '' };
+}
+
 const PIPER_NAME_FIXES = { libritts: 'LibriTTS', libritts_r: 'LibriTTS R', ljspeech: 'LJSpeech', vctk: 'VCTK', hfc_female: 'HFC female', hfc_male: 'HFC male', l2arctic: 'L2-ARCTIC', arctic: 'ARCTIC' };
 const QUALITY_NAMES = { x_low: 'Extra low', low: 'Low', medium: 'Medium', high: 'High' };
 
@@ -423,6 +491,9 @@ export function describeProfileVoice(profile, { compact = false } = {}) {
   if (p.engine === 'browser') {
     if (p.voice) return compact ? 'Basic voice' : `Basic voice · ${p.voice}`;
     return compact ? 'Basic voice' : 'Basic voice · built into Chrome';
+  }
+  if (p.engine === 'pocket') {
+    return `${engineLabel(p.engine)} · ${pocketVoiceDetails(p.voice)?.name || 'default voice'}`;
   }
   const kokoro = compact && p.engine === 'kokoro' ? kokoroVoiceDetails(p.voice) : null;
   const voiceName = kokoro ? kokoro.name : formatVoiceName(p.voice, 'default voice');

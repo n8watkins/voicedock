@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   APP_NAME,
@@ -13,6 +13,9 @@ import {
   formatBytes,
   formatVoiceName,
   kokoroVoiceDetails,
+  pocketVoiceDetails,
+  describeEngineEvent,
+  fetchEngineEvents,
   piperVoiceDetails,
   LOCAL_ENGINE_IDS,
   MAX_FAVORITES,
@@ -245,6 +248,7 @@ function OptionsApp() {
       setFavoritesByEngine({
         piper: favoritesFor(stored.favoritesByEngine, 'piper'),
         kokoro: favoritesFor(stored.favoritesByEngine, 'kokoro'),
+        pocket: favoritesFor(stored.favoritesByEngine, 'pocket'),
       });
       setDeletedVoices(Array.isArray(stored.deletedVoices) ? stored.deletedVoices : []);
       setFavsOnly(stored.favsOnly === true);
@@ -492,16 +496,17 @@ function OptionsApp() {
   }, [voicesByEngine, voicesEngine, viewFavorites, favsOnly]);
   const viewOnline = engineStatus[voicesEngine];
 
-  // Every voice the profile forms can pick, per engine. Piper and Kokoro also
+  // Every voice the profile forms can pick, per engine. Each local engine also
   // get a "Default" row (their server's default voice).
   const catalog = useMemo(() => {
     const rows = buildVoiceCatalog({
       piper: voicesByEngine.piper || [],
       kokoro: voicesByEngine.kokoro || [],
+      pocket: voicesByEngine.pocket || [],
       browser: browserVoices,
     });
     const defaults = LOCAL_ENGINE_IDS.map((engine) => ({
-      engine, id: '', name: 'Default voice', meta: defaultVoiceByEngine[engine] ? formatVoiceName(defaultVoiceByEngine[engine]) : 'The server\'s default', language: '', tag: '',
+      engine, id: '', name: 'Default voice', meta: defaultVoiceByEngine[engine] ? (engine === 'pocket' ? pocketVoiceDetails(defaultVoiceByEngine[engine])?.name : formatVoiceName(defaultVoiceByEngine[engine])) : 'The server\'s default', language: '', tag: '',
     }));
     return [...defaults, ...rows];
   }, [voicesByEngine, browserVoices, defaultVoiceByEngine]);
@@ -595,7 +600,7 @@ function OptionsApp() {
         return (
         <section className="tab-panel welcome" role="tabpanel">
           <div className="panel-toolbar"><h2 className="panel-heading">Welcome to VoiceDock</h2></div>
-          <p className="panel-blurb">Reads selected text aloud. The <strong>Basic voice</strong> works now; <strong>Piper</strong> and <strong>Kokoro</strong> add natural voices that run on this computer.</p>
+          <p className="panel-blurb">Reads selected text aloud. The <strong>Basic voice</strong> works now; <strong>Piper</strong>, <strong>Kokoro</strong> and <strong>Pocket TTS</strong> add natural voices that run on this computer.</p>
 
           <div className="settings-group">
             <h3 className="settings-group-title"><Icon name="play" size="s" />1. Try it</h3>
@@ -631,10 +636,10 @@ function OptionsApp() {
             </ul>
           </div>
 
-          {(!engineStatus.piper || !engineStatus.kokoro) && (
+          {LOCAL_ENGINE_IDS.some((engine) => !engineStatus[engine]) && (
             <div className="settings-group">
               <h3 className="settings-group-title"><Icon name="terminal" size="s" />3. Add natural voices</h3>
-              <p className="setting-desc">Free, and they run on this computer. Start with Piper: Kokoro runs through Piper's server.</p>
+              <p className="setting-desc">Free, and they run on this computer. Start with Piper: Kokoro and Pocket TTS run through Piper's server.</p>
               <div className="welcome-setup">
                 {LOCAL_ENGINE_IDS.filter((engine) => !engineStatus[engine]).map((engine) => (
                   <button key={engine} className={`btn btn-sm ${engine === 'piper' || engineStatus.piper ? 'btn-primary' : 'btn-ghost'}`} onClick={() => openSetup(engine)}>
@@ -796,13 +801,14 @@ function OptionsApp() {
             {visibleVoices.length === 0 && (viewOnline || favsOnly) && (
               <p className="no-items">{voiceLoadError[voicesEngine] || (favsOnly
                 ? 'No favorites yet. Star a voice to add it.'
-                : (voicesEngine === 'piper' ? 'No voices yet. Add .onnx files to the voices folder.' : 'Kokoro listed no voices.'))}</p>
+                : (voicesEngine === 'piper' ? 'No voices yet. Add .onnx files to the voices folder.' : `${engineLabel(voicesEngine)} listed no voices.`))}</p>
             )}
             {visibleVoices.map((voice) => {
               const isFav = viewFavorites.includes(voice);
               const quality = voicesEngine === 'piper' ? qualityFromFilename(voice) : null;
               const kokoro = voicesEngine === 'kokoro' ? kokoroVoiceDetails(voice) : null;
-              const details = kokoro || piperVoiceDetails(voice);
+              const pocket = voicesEngine === 'pocket' ? pocketVoiceDetails(voice) : null;
+              const details = kokoro || pocket || piperVoiceDetails(voice);
               const isDefault = voice === defaultVoiceByEngine[voicesEngine];
               const settings = { engine: voicesEngine, voice };
               return (
@@ -810,11 +816,11 @@ function OptionsApp() {
                   <button className={`voice-fav-btn ${isFav ? 'is-fav' : ''}`} title={isFav ? 'Remove from favorites' : 'Add to favorites'} aria-label={isFav ? 'Remove from favorites' : 'Add to favorites'} aria-pressed={isFav} onClick={() => toggleFavorite(voicesEngine, voice)}><Icon name="star" /></button>
                   <div className="voice-card-info">
                     <span className="voice-card-name">
-                      {kokoro ? kokoro.name : (piperVoiceDetails(voice)?.name || formatVoiceName(voice))}
+                      {kokoro || pocket ? details.name : (piperVoiceDetails(voice)?.name || formatVoiceName(voice))}
                       {isDefault && <span className="lang-badge lang-badge-default">Default</span>}
                     </span>
                     <span className="voice-card-file">
-                      {[details?.language, kokoro?.gender, quality && { x_low: 'Extra low', low: 'Low', med: 'Medium', high: 'High' }[quality], voicesEngine === 'piper' && formatBytes(voiceSizes[voice])].filter(Boolean).join(' · ')}
+                      {[details?.language, kokoro?.gender, pocket?.accent, quality && { x_low: 'Extra low', low: 'Low', med: 'Medium', high: 'High' }[quality], voicesEngine === 'piper' && formatBytes(voiceSizes[voice])].filter(Boolean).join(' · ')}
                     </span>
                   </div>
                   <div className="voice-card-btns">
@@ -827,10 +833,12 @@ function OptionsApp() {
           </div>
 
           <div className="voices-footer">
-            {voicesEngine === 'piper'
-              ? <a className="link-external" href="https://huggingface.co/rhasspy/piper-voices/tree/main/en" target="_blank">More Piper voices <Icon name="external" size="s" className="inline" /></a>
-              : <a className="link-external" href="https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md" target="_blank">Kokoro voice grades <Icon name="external" size="s" className="inline" /></a>}
+            {voicesEngine === 'piper' && <a className="link-external" href="https://huggingface.co/rhasspy/piper-voices/tree/main/en" target="_blank">More Piper voices <Icon name="external" size="s" className="inline" /></a>}
+            {voicesEngine === 'kokoro' && <a className="link-external" href="https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md" target="_blank">Kokoro voice grades <Icon name="external" size="s" className="inline" /></a>}
+            {voicesEngine === 'pocket' && <a className="link-external" href="https://huggingface.co/kyutai/tts-voices" target="_blank">Pocket TTS voices and their licenses <Icon name="external" size="s" className="inline" /></a>}
           </div>
+
+          <EngineHistory hub={hub} />
 
           {voicesEngine === 'piper' && deletedVoices.length > 0 && (
             <details className="deleted-section">
@@ -931,6 +939,7 @@ const CREDITS = [
   { name: 'Piper voices', desc: 'Voice models, on Hugging Face', href: 'https://huggingface.co/rhasspy/piper-voices', icon: 'mic' },
   { name: 'Kokoro-82M', desc: 'Natural open-weight voices, by hexgrad (Apache 2.0)', href: 'https://huggingface.co/hexgrad/Kokoro-82M', mono: 'kokoro' },
   { name: 'kokoro-onnx', desc: 'Runs Kokoro on ONNX Runtime, by thewh1teagle', href: 'https://github.com/thewh1teagle/kokoro-onnx', icon: 'cpu' },
+  { name: 'Pocket TTS', desc: 'Natural English voices on the CPU, by Kyutai. Program MIT, model CC-BY-4.0; voices carry their own licenses. Kyutai forbids cloning or imitating a voice without consent.', href: 'https://github.com/kyutai-labs/pocket-tts', mono: 'pocket' },
   { name: 'uv', desc: 'Installs Kokoro\'s Python, by Astral', href: 'https://github.com/astral-sh/uv', icon: 'package' },
   { name: 'Lucide', desc: 'The icon style (ISC)', href: 'https://lucide.dev', icon: 'shapes' },
   { name: 'Onest, Bricolage Grotesque', desc: 'Typefaces (SIL OFL)', href: 'https://github.com/googlefonts/onest', icon: 'type' },
@@ -945,9 +954,10 @@ function EngineCard({ engine, state, entry, detail, hub, sampling, onSample, onS
   const memory = engine === 'piper'
     ? (entry?.speaking && entry.rssMb ? `${Math.round(entry.rssMb)} MB reading now` : facts.memory)
     : entry?.rssMb ? `${Math.round(entry.rssMb)} MB now` : engineUsable(state) ? 'None now' : facts.memory;
-  const memoryNote = engine === 'kokoro' && (entry?.rssMb || engineUsable(state)) ? facts.memory : '';
-  const firstAudio = engine === 'kokoro'
-    ? (entry?.modelLoaded ? 'At once, model loaded' : `About ${startSeconds(engine, hub)} s from cold`)
+  const heavy = engine === 'kokoro' || engine === 'pocket';
+  const memoryNote = heavy && (entry?.rssMb || engineUsable(state)) ? facts.memory : '';
+  const firstAudio = heavy
+    ? (entry?.modelLoaded ? `At once, ${engine === 'kokoro' ? 'model loaded' : 'running'}` : `About ${startSeconds(engine, hub)} s from cold`)
     : engine === 'piper' ? 'About 1 s' : 'At once';
   return (
     <div className={`engine-card state-${state}`} data-engine={engine}>
@@ -978,6 +988,52 @@ function EngineCard({ engine, state, entry, detail, hub, sampling, onSample, onS
         {local && engineUsable(state) && <button className="btn btn-sm btn-link" onClick={onSetup}>Setup steps</button>}
       </div>
     </div>
+  );
+}
+
+// The hub's recent engine events (GET /hub/events), newest first: when each
+// engine started and how long it took, when and why it stopped, refusals
+// and memory pressure. Loaded when opened, and again with Refresh.
+function EngineHistory({ hub }) {
+  const [open, setOpen] = useState(false);
+  const [result, setResult] = useState(null);
+  const [all, setAll] = useState(false);
+  const load = useCallback(() => { fetchEngineEvents().then(setResult); }, []);
+  useEffect(() => { if (open) load(); }, [open, load, hub?.reachable]);
+  const events = (result?.events || []).slice().reverse();
+  const shown = all ? events : events.slice(0, 12);
+  return (
+    <details className="settings-group engine-history" onToggle={(event) => setOpen(event.currentTarget.open)}>
+      <summary className="history-summary">
+        <Icon name="clock" size="s" />
+        <span>Engine history</span>
+        {result?.reachable && <span className="history-count">({events.length})</span>}
+      </summary>
+      <div className="history-body">
+        <div className="history-head">
+          <span className="setting-desc">Since VoiceDock's server started: starts, stops and why. Nothing about what was read.</span>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={load}><Icon name="refresh" size="s" />Refresh</button>
+        </div>
+        {result === null && <p className="setting-desc">Loading…</p>}
+        {result && !result.reachable && <p className="setting-desc">VoiceDock's server is not running, so there is no history to show.</p>}
+        {result?.reachable && events.length === 0 && <p className="setting-desc">Nothing yet: engines start when you read.</p>}
+        {shown.length > 0 && (
+          <ol className="history-list">
+            {shown.map((event, i) => {
+              const { text, tone } = describeEngineEvent(event);
+              const at = new Date(event.at);
+              return (
+                <li key={`${event.at}-${i}`} className={tone ? `tone-${tone}` : undefined}>
+                  <time dateTime={event.at}>{Number.isNaN(at.getTime()) ? '' : at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</time>
+                  <span>{text}</span>
+                </li>
+              );
+            })}
+          </ol>
+        )}
+        {events.length > shown.length && <button type="button" className="btn btn-link btn-sm" onClick={() => setAll(true)}>Show all {events.length}</button>}
+      </div>
+    </details>
   );
 }
 
