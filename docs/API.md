@@ -154,9 +154,10 @@ Kokoro's voices live in a single bundled file, so it has no equivalents.
 
 The hub decides when each engine runs (`servers/piper/hub/engines.js`):
 
-- **On demand.** No engine process runs at hub start. A Kokoro read, or `POST /engines/kokoro/warm` when the popup opens on a Kokoro profile, starts Kokoro.
-- **One heavy engine at a time.** Starting one stops the others once they are not speaking. Piper has no resident process (one `piper` per read), and a Piper read stops an idle Kokoro the hub started.
-- **Unload, then stop.** Kokoro releases its model after 10 idle minutes (`KOKORO_IDLE_UNLOAD_SECONDS`) and exits after 30 (`KOKORO_STOP_AFTER_SECONDS`).
+- **On demand.** No engine process runs at hub start. A Kokoro or Pocket TTS read, or `POST /engines/<id>/warm` when the popup opens on such a profile, starts the engine.
+- **One heavy engine at a time** (Kokoro, Pocket TTS). Starting one stops the others once they are not speaking. Piper has no resident process (one `piper` per read), and a Piper read stops the quiet heavy engines the hub started.
+- **Unload, then stop.** Kokoro releases its model after 10 idle minutes (`KOKORO_IDLE_UNLOAD_SECONDS`) and exits after 30 (`KOKORO_STOP_AFTER_SECONDS`). Pocket TTS can't release its model and starts again in about a second, so it stops after 10 idle minutes (`POCKET_STOP_AFTER_SECONDS`).
+- **Pocket TTS** runs Kyutai's `pocket-tts serve` with int8 weights (`POCKET_QUANTIZE=0` turns that off) on a free loopback port only the hub knows. The hub passes it only a built-in voice name, never a path or URL, and hides any Hugging Face token, so it always loads the weights without voice cloning.
 - **No browser, no engines.** Once the extension has sent a heartbeat, 5 minutes without one (`VOICEDOCK_NO_CLIENT_STOP_SECONDS`) stop every engine that is not speaking.
 - **Crashes.** A crashed Kokoro starts again on the next read, after 1, 2, 4 ... 60 s when it keeps crashing, and is `failed` after 5 crashes in 10 minutes until it is started by hand.
 - **Memory pressure** (pushed by N8 Tray): `attention` releases idle models and refuses warm-ups; `problem` stops engines that are not speaking and refuses to start Kokoro (`503`, `"reason": "low-memory"`).
@@ -166,9 +167,9 @@ Same origin rule as every route.
 | Method | Path | Does |
 | --- | --- | --- |
 | `GET` | `/engines` | `{ api: 2, pressure, presence, policy, engines: [...] }`. Each engine: `id`, `name`, `heavy`, `state`, `installed`, `running`, `startsOnDemand`, `speaking`, `voices`, `rssMb`, `detail` (one line for people), `setup` (what is missing, or null), `coldStart` (`estimateMs` to first audio, `budgetMs`, and Kokoro's measured `processMs` and `modelLoadMs`). Kokoro also has `owned`, `pid`, `modelLoaded`, `lastError` and `stopsInSeconds`. |
-| `POST` | `/tts` | As above, plus `engine`: `"piper"` (default) or `"kokoro"`. A Kokoro read starts Kokoro if needed and waits for it. `409` with `"reason": "not-installed"`, `503` with `"reason": "low-memory"` or `"failed"`. |
+| `POST` | `/tts` | As above, plus `engine`: `"piper"` (default), `"kokoro"` or `"pocket"`. A Kokoro or Pocket read starts the engine if needed and waits for it; Pocket's WAV streams through as it is made (chunked), and `voice` must be one of its 26 voice names. `409` with `"reason": "not-installed"`, `503` with `"reason": "low-memory"` or `"failed"`. |
 | `POST` | `/engines/:id/warm` | Starts a heavy engine without waiting: `202 {"outcome": "ok", "state": "starting", "expectedMs"}`, `200 {"outcome": "already"}`, or `409`/`503` with `"outcome": "refused"` and a `reason`. |
-| `GET` | `/engines/:id/voices` | An engine's voices. Kokoro's come from its voices file, so this never starts it; `404` when it isn't set up. |
+| `GET` | `/engines/:id/voices` | An engine's voices, without starting it: Kokoro's from its voices file, Pocket TTS's 26 built-in names. `404` when it isn't set up. |
 | `POST` | `/presence` | The extension's heartbeat: `{ "extensionVersion", "activeEngine", "reading" }`. Sent on browser start, every minute, when the popup opens and on every read. |
 | `GET` | `/hub/events` | The last 100 engine events: starts with their time to ready, stops with the reason, refusals, pressure changes. |
 | `POST` | `/engines/kokoro/start` | The 1.1 extension's route, kept for one release. |

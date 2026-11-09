@@ -6,9 +6,10 @@
  * GET  /health                  → { status, engine: "piper", api: 2, version, rssMb, readers, ...,
  *                                   listen: "127.0.0.1:7477", exposed: false }
  * GET  /engines                 → every engine with its state, memory and cold-start figures
- * POST /tts  { text, engine?, voice? } → audio/wav from Piper (default) or
- *                                   Kokoro, which the hub starts on demand and proxies
- * GET  /engines/:id/voices      → an engine's voices (Kokoro's without starting it)
+ * POST /tts  { text, engine?, voice? } → audio/wav from Piper (default), or from
+ *                                   Kokoro or Pocket TTS, which the hub starts on
+ *                                   demand and proxies (Pocket's audio streams through)
+ * GET  /engines/:id/voices      → an engine's voices (without starting it)
  * POST /engines/:id/warm        → start a heavy engine now, without waiting
  * POST /presence                → the extension's heartbeat (hub/engines.js)
  * GET  /hub/events              → recent engine starts, stops and refusals
@@ -36,6 +37,8 @@ const { spawn } = require("child_process");
 const { version } = require("./package.json");
 const { serverRssMb, createReaderTracker } = require("./memory");
 const { createKokoroLauncher, KOKORO_HOST, KOKORO_PORT } = require("./kokoro");
+const { createPocketLauncher, MAX_TEXT_CHARS: POCKET_MAX_CHARS } = require("./pocket");
+const { Readable } = require("stream");
 const { createHub } = require("./hub/engines");
 const { createControlPlane, appVersion } = require("./hub/n8tray");
 
@@ -86,8 +89,20 @@ const kokoro = new Proxy({}, {
     return typeof value === "function" ? value.bind(launcher) : value;
   },
 });
+// app.locals.pocket likewise.
+app.locals.pocket = createPocketLauncher({
+  onIdleStop: (reason) => app.locals.hub?.event("stop", "pocket", { reason }),
+});
+const pocket = new Proxy({}, {
+  get(_target, prop) {
+    const launcher = app.locals.pocket;
+    const value = launcher[prop];
+    return typeof value === "function" ? value.bind(launcher) : value;
+  },
+});
 app.locals.hub = createHub({
   kokoro,
+  pocket,
   readers,
   piperVoices: installedVoices,
   piperInstalled: () => require("fs").existsSync(PIPER_BIN),
@@ -103,6 +118,7 @@ function stopServer(reason) {
 app.locals.n8 = createControlPlane({
   hub: app.locals.hub,
   kokoro,
+  pocket,
   readers,
   onStop: (reason) => app.locals.onStop(reason),
 });
@@ -209,13 +225,15 @@ app.post("/engines/:id/warm", async (req, res) => {
 app.get("/engines/:id/voices", async (req, res, next) => {
   const { id } = req.params;
   if (id === "piper") return listPiperVoices(req, res);
-  if (id !== "kokoro") return next();
+  const launcher = id === "kokoro" ? app.locals.kokoro : id === "pocket" ? app.locals.pocket : null;
+  if (!launcher) return next();
+  const name = app.locals.hub.descriptors[id].name;
   try {
-    const list = app.locals.kokoro.voices();
-    if (!list) return res.status(404).json({ error: "Kokoro is not set up." });
+    const list = launcher.voices();
+    if (!list) return res.status(404).json({ error: `${name} is not set up.` });
     res.json(list);
   } catch (err) {
-    res.status(500).json({ error: "Could not read Kokoro's voices.", details: err.message });
+    res.status(500).json({ error: `Could not read ${name}'s voices.`, details: err.message });
   }
 });
 
@@ -395,9 +413,57 @@ async function kokoroTts(req, res) {
   }
 }
 
+// Pocket TTS: started on demand, then its audio streams through as the
+// engine makes it (a WAV with chunked transfer), so playback can begin early.
+async function pocketTts(req, res) {
+  const text = req.body?.text;
+  const error = validateText(text);
+  if (error) return res.status(400).json({ error });
+  if (text.trim().length > POCKET_MAX_CHARS) {
+    return res.status(400).json({ error: `Text is too long (${text.trim().length} chars). Maximum is ${POCKET_MAX_CHARS}.` });
+  }
+  const voice = typeof req.body.voice === "string" && req.body.voice.trim() ? req.body.voice.trim() : null;
+  const voices = app.locals.pocket.voices()?.voices || [];
+  if (voice && !voices.includes(voice)) return res.status(400).json({ error: `Unknown Pocket TTS voice: ${voice}` });
+  const hub = app.locals.hub;
+  hub.activity();
+  try {
+    await hub.ensure("pocket");
+  } catch (err) {
+    return engineError(res, err, "Pocket TTS");
+  }
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  res.on("close", () => { if (!res.writableFinished) ctrl.abort(); });
+  hub.beginRead("pocket");
+  try {
+    const upstream = await app.locals.pocket.tts({ text: text.trim(), voice, signal: ctrl.signal });
+    res.status(upstream.status);
+    res.setHeader("Content-Type", upstream.headers.get("content-type") || "application/octet-stream");
+    res.setHeader("Cache-Control", "no-store");
+    if (!upstream.body) return res.end();
+    await new Promise((resolve) => {
+      const body = Readable.fromWeb(upstream.body);
+      body.on("error", () => { res.destroy(); resolve(); });
+      res.on("close", resolve);
+      body.pipe(res);
+    });
+  } catch (err) {
+    if (!res.headersSent && !ctrl.signal.aborted) {
+      res.status(502).json({ error: "Pocket TTS did not answer.", reason: "failed", details: err.message });
+    } else if (!res.headersSent) {
+      res.status(504).json({ error: "Pocket TTS took too long.", reason: "failed" });
+    }
+  } finally {
+    clearTimeout(timer);
+    hub.endRead("pocket");
+  }
+}
+
 app.post("/tts", async (req, res) => {
   const engine = req.body?.engine ?? "piper";
   if (engine === "kokoro") return kokoroTts(req, res);
+  if (engine === "pocket") return pocketTts(req, res);
   if (engine !== "piper") return res.status(400).json({ error: `Unknown engine: ${engine}` });
   app.locals.hub.activity();
   const text  = req.body?.text;
@@ -415,9 +481,9 @@ app.post("/tts", async (req, res) => {
     return res.status(400).json({ error: voiceError });
   }
 
-  // Only the engine in use runs: a Piper read stops an idle Kokoro this
-  // server started. Not awaited, so the read never waits on it.
-  app.locals.kokoro.yieldTo("piper").catch(() => {});
+  // Only the engine in use runs: a Piper read stops the quiet heavy engines
+  // this server started. Not awaited, so the read never waits on it.
+  app.locals.hub.yieldFor("piper").catch(() => {});
 
   app.locals.hub.beginRead("piper");
   res.on("close", () => app.locals.hub.endRead("piper"));
@@ -620,7 +686,10 @@ if (require.main === module) {
   for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
     process.on(signal, () => stopServer(signal));
   }
-  process.on("exit", () => app.locals.kokoro.stop());
+  process.on("exit", () => {
+    app.locals.kokoro.stop();
+    app.locals.pocket.stop();
+  });
 }
 
 module.exports = { app, isAllowedOrigin };

@@ -4,12 +4,14 @@
  *
  * - Start on demand. No engine process runs at hub start. A read (or a warm
  *   request when the popup opens) starts a heavy engine.
- * - One heavy engine at a time. Starting one stops the others once they are
- *   not speaking. Piper has no resident process (one piper.exe per read), and
- *   a Piper read stops an idle Kokoro (kokoro.js yieldTo), so only the engine
- *   in use runs.
+ * - One heavy engine at a time (Kokoro, Pocket TTS). Starting one stops the
+ *   others once they are not speaking. Piper has no resident process (one
+ *   piper.exe per read), and a Piper read stops the quiet heavy engines
+ *   (yieldFor), so only the engine in use runs.
  * - Unload, then stop. Kokoro releases its model after 10 idle minutes and
- *   exits after 30 by itself (kokoro.js passes the timers).
+ *   exits after 30 by itself (kokoro.js passes the timers). Pocket TTS can't
+ *   release its model, and starts again in about a second, so it stops after
+ *   10 idle minutes (pocket.js).
  * - No browser, no engines. Once the extension has sent a heartbeat
  *   (POST /presence), N minutes without one (default 5) stop every heavy
  *   engine that is not speaking. A hub that never got a heartbeat (an older
@@ -33,9 +35,12 @@ const MAX_EVENTS = 100;
 // some: lastStartMs (process up to /health) plus the model load.
 const DESCRIPTORS = {
   piper: { id: "piper", name: "Piper", heavy: false, coldStartEstimateMs: 1000, budgetMs: 2000 },
-  kokoro: { id: "kokoro", name: "Kokoro", heavy: true, coldStartEstimateMs: 5000, budgetMs: 8000 },
+  kokoro: { id: "kokoro", name: "Kokoro", heavy: true, canUnload: true, coldStartEstimateMs: 5000, budgetMs: 8000 },
+  // Pocket TTS can't release its model, so "unload" stops it: it starts
+  // again in about a second.
+  pocket: { id: "pocket", name: "Pocket TTS", heavy: true, canUnload: false, coldStartEstimateMs: 2000, budgetMs: 15000 },
 };
-const ENGINE_ORDER = ["piper", "kokoro"];
+const ENGINE_ORDER = ["piper", "kokoro", "pocket"];
 
 function noClientStopSeconds(env = process.env) {
   const raw = env.VOICEDOCK_NO_CLIENT_STOP_SECONDS;
@@ -63,12 +68,14 @@ function codedError(code, message) {
 /**
  * @param {object} options
  * @param {object} options.kokoro the Kokoro launcher (kokoro.js)
+ * @param {object} [options.pocket] the Pocket TTS launcher (pocket.js)
  * @param {object} options.readers the Piper reader tracker (memory.js)
  * @param {() => Promise<string[]>} options.piperVoices installed Piper voices
  * @param {() => boolean} options.piperInstalled whether the piper binary exists
  */
 function createHub({
   kokoro,
+  pocket = null,
   readers,
   piperVoices,
   piperInstalled,
@@ -77,8 +84,8 @@ function createHub({
   log = console,
   checkIntervalMs = 30_000,
 }) {
-  const heavy = { kokoro };
-  const inflight = { piper: 0, kokoro: 0 };
+  const heavy = pocket ? { kokoro, pocket } : { kokoro };
+  const inflight = { piper: 0, kokoro: 0, pocket: 0 };
   const pendingStop = new Set(); // heavy engines to stop once their reads finish
   const clients = new Map();     // extension origin -> { lastSeenAt, version, activeEngine, reading }
   const events = [];
@@ -173,11 +180,12 @@ function createHub({
       return { state: "ready", startedMs: 0 };
     }
     const launcher = heavy[id];
+    if (!launcher) throw codedError("unknown", `Unknown engine: ${id}`);
     const running = await launcher.health(400);
     if (running) return { state: "ready", startedMs: 0 };
     if (pressure === "problem") {
       event("refused", id, { reason: "low-memory" });
-      throw codedError("low-memory", "Memory is low, so VoiceDock does not start Kokoro now.");
+      throw codedError("low-memory", `Memory is low, so VoiceDock does not start ${DESCRIPTORS[id].name} now.`);
     }
     await yieldHeavyTo(id);
     event("start", id, { manual });
@@ -195,10 +203,12 @@ function createHub({
     activity();
     inflight[id] = (inflight[id] || 0) + 1;
     activeEngine = id;
+    heavy[id]?.begin?.();
   }
 
   function endRead(id) {
     inflight[id] = Math.max(0, (inflight[id] || 0) - 1);
+    heavy[id]?.end?.();
     if (inflight[id] === 0 && pendingStop.has(id)) {
       pendingStop.delete(id);
       stopEngine(id, "another engine became active").catch(() => {});
@@ -211,11 +221,12 @@ function createHub({
     activity();
     if (!DESCRIPTORS[id]) return { outcome: "refused", reason: "unknown", message: `Unknown engine: ${id}` };
     if (!DESCRIPTORS[id].heavy) return { outcome: "already", state: "ready" };
+    if (!heavy[id]) return { outcome: "refused", reason: "unknown", message: `Unknown engine: ${id}` };
     const status = await heavy[id].status();
     if (status.state === "ready" || status.state === "starting") {
       return { outcome: "already", state: status.state, expectedMs: status.state === "starting" ? expectedColdMs(id, status) : 0 };
     }
-    if (status.state === "not-installed") return { outcome: "refused", reason: "not-installed", message: status.setup };
+    if (status.state === "not-installed" || status.state === "needs-setup") return { outcome: "refused", reason: "not-installed", message: status.setup };
     if (pressure !== "ok") {
       event("refused", id, { reason: "low-memory", warm: true });
       return { outcome: "refused", reason: "low-memory", message: "Memory is low, so VoiceDock does not warm engines now." };
@@ -229,9 +240,25 @@ function createHub({
     const d = DESCRIPTORS[id];
     if (!d.heavy) return d.coldStartEstimateMs;
     const processMs = status?.lastStartMs;
+    // Pocket TTS loads its model while starting: the start is the whole wait.
+    if (id === "pocket") return processMs == null ? d.coldStartEstimateMs : processMs + 600;
     const loadMs = status?.modelLoadMs;
     if (processMs == null && loadMs == null) return d.coldStartEstimateMs;
     return (processMs ?? 600) + (loadMs ?? 2500) + 1000; // plus the first sentence
+  }
+
+  // A Piper read is about to start: stop every quiet heavy engine this hub
+  // started, so only the engine in use runs. Not awaited by the read.
+  async function yieldFor(id) {
+    let stopped = false;
+    for (const [other, launcher] of Object.entries(heavy)) {
+      if (other === id || inflight[other] > 0) continue;
+      if (await launcher.yieldTo(id)) {
+        event("stop", other, { reason: `${DESCRIPTORS[id].name} is reading` });
+        stopped = true;
+      }
+    }
+    return stopped;
   }
 
   // ─── Memory pressure ─────────────────────────────────────────────────────
@@ -249,6 +276,7 @@ function createHub({
       const status = await launcher.status();
       if (speaking(id, status)) continue;
       if (level === "problem") await stopEngine(id, "memory is low");
+      else if (!DESCRIPTORS[id].canUnload) await stopEngine(id, "memory is getting low");
       else if (status.modelLoaded && (await launcher.unload())) event("unload", id, { reason: "memory pressure" });
     }
     return pressure;
@@ -378,8 +406,54 @@ function createHub({
     };
   }
 
+  async function pocketEntry() {
+    const d = DESCRIPTORS.pocket;
+    const st = await pocket.status();
+    const expectedMs = expectedColdMs("pocket", st);
+    let state;
+    let detail;
+    if (st.state === "starting") {
+      state = "starting";
+      detail = `Starting, ${secondsText(expectedMs)}`;
+    } else if (st.state === "ready") {
+      state = "ready";
+      const left = st.stopAfterSeconds > 0 && !st.speaking ? Math.max(0, st.stopAfterSeconds - (st.idleSeconds || 0)) : null;
+      detail = st.speaking ? "Reading" : left != null ? `Ready, stops in ${minutesText(left)}` : "Ready";
+    } else if (st.state === "failed") {
+      state = "failed";
+      detail = st.lastError || "Pocket TTS keeps crashing";
+    } else if (st.state === "not-installed" || st.state === "needs-setup") {
+      state = st.state;
+      detail = st.setup;
+    } else {
+      state = pressure === "problem" ? "stopped" : "idle";
+      detail = pressure === "problem" ? "Memory is low, so Pocket TTS stays off for now" : `Starts when you read, ${secondsText(expectedMs)}`;
+    }
+    return {
+      id: d.id,
+      name: d.name,
+      heavy: true,
+      state,
+      installed: st.state !== "not-installed",
+      running: st.state === "ready",
+      owned: st.owned,
+      startsOnDemand: st.startsOnDemand && pressure !== "problem",
+      speaking: st.speaking,
+      voices: st.setupState === "not-installed" ? null : (pocket.voices()?.voices.length ?? null),
+      pid: st.pid,
+      rssMb: st.rssMb,
+      modelLoaded: st.modelLoaded,
+      version: st.version,
+      detail,
+      setup: st.setup,
+      lastError: st.lastError,
+      stopsInSeconds: st.state === "ready" && !st.speaking && st.stopAfterSeconds > 0 ? Math.max(0, st.stopAfterSeconds - (st.idleSeconds || 0)) : null,
+      coldStart: { estimateMs: expectedMs, budgetMs: d.budgetMs, processMs: st.lastStartMs, modelLoadMs: null },
+    };
+  }
+
   async function list() {
-    const engines = await Promise.all([piperEntry(), kokoroEntry()]);
+    const engines = await Promise.all([piperEntry(), kokoroEntry(), ...(pocket ? [pocketEntry()] : [])]);
     return {
       api: 2,
       pressure,
@@ -394,7 +468,7 @@ function createHub({
   }
 
   return {
-    list, ensure, warm, beginRead, endRead, presence, activity, presenceDoc, setPressure, tick,
+    list, ensure, warm, beginRead, endRead, presence, activity, presenceDoc, setPressure, tick, yieldFor, event,
     start, stopTimers, stopAll, stopEngine, expectedColdMs,
     events: () => events.slice(),
     pressure: () => pressure,

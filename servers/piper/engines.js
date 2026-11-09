@@ -5,6 +5,8 @@
  *   node engines.js list                     what is installed, current and previous
  *   node engines.js catalog                  check the catalog's signature, list its downloads
  *   node engines.js install <engine> [ver]   download, check SHA-256, install side by side
+ *   node engines.js model pocket             download Pocket TTS's model (about 222 MB), check it
+ *   node engines.js verify pocket            check every downloaded Pocket file against the catalog
  *   node engines.js use <engine> <version>   switch to another installed version
  *   node engines.js rollback <engine>        back to the version before
  *   node engines.js remove <engine> <ver>    delete a version that is not in use
@@ -14,9 +16,28 @@
  */
 const { createInstalls } = require("./hub/installs");
 const { platformKey } = require("./hub/catalog");
+const readline = require("readline");
 
 const installs = createInstalls();
-const [command, engine, version] = process.argv.slice(2);
+const flags = new Set(process.argv.slice(2).filter((a) => a.startsWith("--")));
+const [command, engine, version] = process.argv.slice(2).filter((a) => !a.startsWith("--"));
+
+// Engines whose model comes with terms (Pocket TTS: CC-BY-4.0, and no
+// cloning a voice without consent) ask before installing.
+async function acceptTerms(id) {
+  const entry = installs.catalog().engines[id];
+  const terms = entry?.license?.terms;
+  if (!terms) return;
+  console.log(`${entry.name} by ${entry.by}. Program: ${entry.license.program}. Model: ${entry.license.model} (${entry.license.modelCard}).`);
+  console.log(`Voices: ${entry.license.voices}`);
+  console.log(`Terms: ${terms}`);
+  if (flags.has("--accept-terms")) return;
+  if (!process.stdin.isTTY) throw new Error("Add --accept-terms to accept the terms above");
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const answer = await new Promise((r) => rl.question("Type yes to accept and install: ", r));
+  rl.close();
+  if (answer.trim().toLowerCase() !== "yes") throw new Error("Not installed: the terms were not accepted");
+}
 
 function mb(bytes) {
   return `${(bytes / 1e6).toFixed(bytes < 10e6 ? 1 : 0)} MB`;
@@ -47,6 +68,7 @@ async function main() {
   }
   if (!engine) throw new Error("Name an engine, for example: node engines.js install pocket");
   if (command === "install") {
+    await acceptTerms(engine);
     let last = 0;
     const result = await installs.install(engine, {
       version,
@@ -56,6 +78,25 @@ async function main() {
       },
     });
     console.log(result.already ? `${engine} ${result.version} was already installed; it is current.` : `${engine} ${result.version} is installed and current.`);
+    if (engine === "pocket") console.log("Next: node engines.js model pocket (downloads its voice model, about 222 MB)");
+    return;
+  }
+  if (command === "model" && engine === "pocket") {
+    const { downloadModel } = require("./pocket");
+    await downloadModel({ installs });
+    console.log("Pocket TTS is set up. VoiceDock starts it the first time you read with a Pocket voice.");
+    return;
+  }
+  if (command === "verify" && engine === "pocket") {
+    const { verifyModel } = require("./pocket");
+    const results = await verifyModel({ installs });
+    let bad = 0;
+    for (const r of results.filter((x) => x.present)) {
+      console.log(`  ${r.id}: ${r.ok ? "OK" : "DIFFERS from the catalog"}`);
+      if (!r.ok) bad += 1;
+    }
+    console.log(`${results.filter((x) => x.present).length} files checked, ${results.filter((x) => !x.present).length} not downloaded yet (voices arrive on first use).`);
+    if (bad) throw new Error(`${bad} file(s) differ: run node engines.js uninstall pocket, then set it up again`);
     return;
   }
   if (command === "use") {
