@@ -33,7 +33,7 @@ test('popup: the voice picker shows engine pills, then that engine\'s voices', a
   // Opens on the profile's engine (Kokoro), with its favorite first.
   await expect(picker.getByRole('radio', { name: /Kokoro/ })).toHaveAttribute('aria-checked', 'true');
   await expect(picker.locator('section[aria-label="Favorites"] .vrow .nm')).toHaveText(['Heart']);
-  await expect(picker.getByRole('option', { name: /Davefx/ })).toHaveCount(0);
+  await expect(picker.getByRole('button', { name: /^Davefx/ })).toHaveCount(0);
   await expect(picker.getByRole('searchbox', { name: 'Search voices' })).toHaveAttribute('placeholder', 'Search 6 Kokoro voices');
   // The search box takes focus on open; wait for it so the shot is stable.
   await expect(picker.getByRole('searchbox', { name: 'Search voices' })).toBeFocused();
@@ -87,7 +87,7 @@ test('popup: picking, searching, filtering and starring voices', async ({ openPo
   await expect(picker.getByRole('searchbox', { name: 'Search voices' })).toHaveAttribute('placeholder', 'Search 5 Piper voices');
   await picker.getByRole('searchbox', { name: 'Search voices' }).fill('cori');
   await expect(picker.locator('.vrow .nm')).toHaveText(['Cori']);
-  await picker.getByRole('option', { name: /Cori/ }).click();
+  await picker.getByRole('button', { name: /^Cori/ }).click();
   await expect(picker).toBeHidden();
   await expect(page.locator('.reading .name')).toHaveText('Cori');
   await expect(page.locator('.reading .sub')).toHaveText('Piper · UK English');

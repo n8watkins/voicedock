@@ -95,7 +95,7 @@ export function VoiceList({
           </select>
         )}
       </div>
-      <div className="pk-list" role="listbox" aria-label={`${engineLabel(engine)} voices`}>
+      <div className="pk-list" aria-label={`${engineLabel(engine)} voices`} role="group">
         {favs.length > 0 && (
           <section aria-label="Favorites">
             <div className="grp"><Icon name="star" size="s" /><span>Favorites</span></div>
@@ -135,29 +135,26 @@ export function EngineSetupNote({ engine, state, onSetup }) {
   );
 }
 
+// A voice: star, the voice itself (a button that picks it), and a sample
+// button. Three sibling buttons, so no control sits inside another.
 export function VoiceRow({ row, selected, favorite, previewing, playing, onChoose, onFavorite, onPreview }) {
   const canFavorite = row.id !== '';
   return (
-    <div
-      className="vrow"
-      role="option"
-      tabIndex={0}
-      aria-selected={selected}
-      onClick={() => onChoose(row)}
-      onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) { e.preventDefault(); onChoose(row); } }}
-    >
+    <div className={`vrow${selected ? ' sel' : ''}`}>
       {canFavorite && onFavorite
         ? (
-          <button type="button" className={`star${favorite ? ' on' : ''}`} aria-label={favorite ? `Remove ${row.name} from favorites` : `Add ${row.name} to favorites`} aria-pressed={favorite} onClick={(e) => { e.stopPropagation(); onFavorite(row); }}>
+          <button type="button" className={`star${favorite ? ' on' : ''}`} aria-label={favorite ? `Remove ${row.name} from favorites` : `Add ${row.name} to favorites`} aria-pressed={favorite} onClick={() => onFavorite(row)}>
             <Icon name="star" size="s" />
           </button>
         )
         : <span className="star-gap" aria-hidden="true" />}
-      <span className="vtext">
-        <span className="nm">{row.name}{selected && <Icon name="check" size="s" className="sel" />}</span>
-        <span className="mt">{row.meta}</span>
-      </span>
-      {row.tag ? <span className="vd-tag">{row.tag}</span> : <span />}
+      <button type="button" className="vpick" aria-current={selected ? 'true' : undefined} onClick={() => onChoose(row)}>
+        <span className="vtext">
+          <span className="nm">{row.name}{selected && <Icon name="check" size="s" className="sel" label="Selected" />}</span>
+          <span className="mt">{row.meta}</span>
+        </span>
+        {row.tag ? <span className="vd-tag">{row.tag}</span> : null}
+      </button>
       {onPreview
         ? (
           <button
@@ -165,7 +162,7 @@ export function VoiceRow({ row, selected, favorite, previewing, playing, onChoos
             className={`pv${previewing ? ' on' : ''}${previewing && playing ? ' live' : ''}`}
             aria-label={previewing ? `Stop the ${row.name} sample` : `Play a sample of ${row.name}`}
             title={previewing ? 'Stop' : 'Play a sample'}
-            onClick={(e) => { e.stopPropagation(); onPreview(row); }}
+            onClick={() => onPreview(row)}
           >
             <Icon name={previewing ? 'stop' : 'play'} size="s" />
           </button>

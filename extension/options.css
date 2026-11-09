@@ -112,7 +112,7 @@ body {
   appearance: none;
   background: var(--surface);
   color: var(--ink);
-  border: 1px solid var(--line);
+  border: 1px solid var(--control);
   border-radius: 8px;
   padding: 7px 10px;
   font-family: var(--f-ui);
@@ -822,7 +822,7 @@ code, kbd, pre { font-family: var(--f-mono); }
 .voice-field { display: grid; gap: 8px; }
 .vf-button {
   display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
-  border: 1px solid var(--line); border-radius: 8px; background: var(--surface);
+  border: 1px solid var(--control); border-radius: 8px; background: var(--surface);
   padding: 8px 10px; color: var(--ink); cursor: pointer; font: inherit;
 }
 .vf-button:hover { border-color: var(--line-strong); }
@@ -916,3 +916,4 @@ code, kbd, pre { font-family: var(--f-mono); }
 .dep-text { display: grid; gap: 2px; min-width: 0; }
 .dep-card-github { max-width: 360px; }
 .dep-card-github .dep-logo { color: var(--ink); }
+.form-input::placeholder { color: var(--muted); opacity: 1; }

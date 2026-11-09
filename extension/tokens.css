@@ -6,6 +6,9 @@
  * reserved for engine status: green Ready, amber Installed but not running,
  * grey Not installed, violet Starting.
  *
+ * Every text colour meets WCAG AA (4.5:1) on every surface it sits on, and
+ * --control borders meet 3:1; e2e/a11y.spec.mjs checks it with axe-core.
+ *
  * Light and dark follow the system; [data-theme] on the root forces one.
  * The selectors include :host so the player bar's shadow root gets the same
  * tokens. Fonts are bundled (fonts/, SIL OFL 1.1); a shadow root can't load
@@ -33,19 +36,22 @@
   --surface-3: #e6e0f8;
   --ink: #150f33;
   --muted: #5b5582;
-  --faint: #7a74a0;
+  --faint: #66608d;
   --line: #ddd6f3;
   --line-strong: #c9bff0;
-  --accent: #6544f0;
+  /* Borders that identify a control (inputs, selects, search): 3:1 against
+     every surface, as WCAG 1.4.11 asks. --line is for decoration only. */
+  --control: #8a83ad;
+  --accent: #6341f0;
   --accent-hover: #5636dc;
   --accent-soft: #ede9fe;
   --accent-ink: #ffffff;
   --mark-ink: #150f33;
   --mark-hi: #c4b5fd;
   --mark-lo: #7c5cff;
-  --ok: #0f7d55;
+  --ok: #0e744f;
   --ok-soft: #dcf3e8;
-  --warn: #9a5400;
+  --warn: #985300;
   --warn-soft: #fcefd6;
   --err: #b8323d;
   --err-soft: #fbe2e4;
@@ -71,8 +77,8 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]), :host {
     --bg: #0c0920; --surface: #150f33; --surface-2: #1d1645; --surface-3: #261e57;
-    --ink: #eeeaff; --muted: #aaa3d6; --faint: #8b84b8; --line: #2b2361; --line-strong: #3b3180;
-    --accent: #a18aff; --accent-hover: #b6a4ff; --accent-soft: #2a2166; --accent-ink: #120c2e;
+    --ink: #eeeaff; --muted: #aaa3d6; --faint: #948ebe; --line: #2b2361; --line-strong: #3b3180; --control: #6a60b0;
+    --accent: #aa96ff; --accent-hover: #bcadff; --accent-soft: #2a2166; --accent-ink: #120c2e;
     --ok: #52d49d; --ok-soft: #10342a; --warn: #f3b562; --warn-soft: #3a2a10; --err: #ff8089; --err-soft: #3e1822;
     --idle: #a29ec6; --idle-soft: #221c4a; --code-bg: #0f0b27; --highlight: #3a2f7a;
     --scrim: rgb(0 0 0 / 0.55);
@@ -83,8 +89,8 @@
 }
 :root[data-theme="dark"] {
   --bg: #0c0920; --surface: #150f33; --surface-2: #1d1645; --surface-3: #261e57;
-  --ink: #eeeaff; --muted: #aaa3d6; --faint: #8b84b8; --line: #2b2361; --line-strong: #3b3180;
-  --accent: #a18aff; --accent-hover: #b6a4ff; --accent-soft: #2a2166; --accent-ink: #120c2e;
+  --ink: #eeeaff; --muted: #aaa3d6; --faint: #948ebe; --line: #2b2361; --line-strong: #3b3180; --control: #6a60b0;
+  --accent: #aa96ff; --accent-hover: #bcadff; --accent-soft: #2a2166; --accent-ink: #120c2e;
   --ok: #52d49d; --ok-soft: #10342a; --warn: #f3b562; --warn-soft: #3a2a10; --err: #ff8089; --err-soft: #3e1822;
   --idle: #a29ec6; --idle-soft: #221c4a; --code-bg: #0f0b27; --highlight: #3a2f7a;
   --scrim: rgb(0 0 0 / 0.55);
@@ -203,10 +209,11 @@ input[type="range"] { accent-color: var(--accent); }
 }
 .setup-note p { margin: 0; }
 .pk-tools { display: flex; gap: 6px; padding: 10px 12px; }
-.search { flex: 1; display: flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 8px; padding: 0 8px; color: var(--faint); min-width: 0; }
+.search { flex: 1; display: flex; align-items: center; gap: 6px; border: 1px solid var(--control); border-radius: 8px; padding: 0 8px; color: var(--faint); min-width: 0; }
 .search input { border: 0; outline: 0; background: transparent; padding: 7px 0; width: 100%; min-width: 0; color: var(--ink); }
+.search input::placeholder { color: var(--muted); opacity: 1; }
 .search:focus-within { border-color: var(--accent); }
-.pk-tools select { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); padding: 6px; font-size: 12px; max-width: 128px; }
+.pk-tools select { border: 1px solid var(--control); border-radius: 8px; background: var(--surface); padding: 6px; font-size: 12px; max-width: 128px; }
 .pk-list { overflow-y: auto; flex: 1; padding: 0 6px 10px; }
 .grp {
   padding: 10px 8px 4px; display: flex; align-items: center; gap: 8px;
@@ -215,21 +222,26 @@ input[type="range"] { accent-color: var(--accent); }
 }
 .grp-note { margin: 2px 8px 8px; padding: 9px 10px; border-radius: 8px; background: var(--surface-2); font-size: 12px; color: var(--muted); display: flex; gap: 8px; align-items: center; justify-content: space-between; }
 .vrow {
-  display: grid; grid-template-columns: 22px minmax(0, 1fr) auto 30px; align-items: center; gap: 6px;
-  padding: 6px 6px 6px 4px; border-radius: 8px; cursor: pointer;
+  display: grid; grid-template-columns: 22px minmax(0, 1fr) 30px; align-items: center; gap: 6px;
+  padding: 2px 6px 2px 4px; border-radius: 8px;
 }
 .vrow:hover { background: var(--surface-2); }
-.vrow[aria-selected="true"] { background: var(--accent-soft); }
-.vrow:focus-visible { outline-offset: -2px; }
+.vrow.sel { background: var(--accent-soft); }
+.vpick {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px;
+  border: 0; background: none; padding: 4px 2px; text-align: left; color: inherit; font: inherit; cursor: pointer; min-width: 0;
+  border-radius: 6px;
+}
+.vpick:focus-visible { outline-offset: 0; }
 .star, .star-gap { width: 22px; height: 22px; }
 .star { color: var(--faint); border: 0; background: none; padding: 0; display: grid; place-items: center; border-radius: 6px; }
 .star:hover { color: var(--ink); }
 .star.on { color: var(--accent); }
 .star.on svg { fill: currentColor; }
 .vtext { display: grid; min-width: 0; }
-.vrow .nm { font-weight: 600; font-size: 13px; display: flex; gap: 5px; align-items: center; overflow: hidden; white-space: nowrap; }
-.vrow .nm .sel { color: var(--accent); }
-.vrow .mt { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vpick .nm { font-weight: 600; font-size: 13px; display: flex; gap: 5px; align-items: center; overflow: hidden; white-space: nowrap; }
+.vpick .nm .sel { color: var(--accent); }
+.vpick .mt { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pv {
   width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface);
   display: grid; place-items: center; color: var(--accent); position: relative;

@@ -20,7 +20,7 @@ test('a profile picks its engine with pills, then a voice from that engine', asy
   await field.getByRole('radio', { name: /Piper/ }).click();
   await expect(field.getByRole('searchbox', { name: 'Search voices' })).toHaveAttribute('placeholder', 'Search 5 Piper voices');
   await field.getByRole('searchbox', { name: 'Search voices' }).fill('alan');
-  await field.getByRole('option', { name: /Alan/ }).click();
+  await field.getByRole('button', { name: /^Alan/ }).click();
   await expect(field.locator('.vf-button')).toContainText('Alan');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   const { profiles } = await serviceWorker.evaluate(async () => chrome.storage.local.get('profiles'));
