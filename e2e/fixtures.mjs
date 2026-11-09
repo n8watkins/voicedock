@@ -1,7 +1,8 @@
 // Playwright fixtures: VoiceDock loaded unpacked in Chromium with a fresh
 // profile per test, the fake engines on 7477/7478, and helpers to open the
 // popup and settings pages and to seed chrome.storage.
-import { mkdtempSync, rmSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import http from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { test as base, chromium, expect } from '@playwright/test';
@@ -9,7 +10,41 @@ import { startFakeEngines } from './fake-engines.mjs';
 
 export const EXTENSION_DIR = resolve(import.meta.dirname, '..', 'extension');
 
+// A test can't click the toolbar button, which is what grants VoiceDock
+// activeTab on a real page. With pageAccess, the test loads a copy of the
+// extension whose manifest also allows http://127.0.0.1 pages, so the popup's
+// Read selection and the player bar work on the test article.
+function extensionCopyWithPageAccess() {
+  const dir = mkdtempSync(join(tmpdir(), 'voicedock-ext-'));
+  cpSync(EXTENSION_DIR, dir, { recursive: true });
+  const manifestPath = join(dir, 'manifest.json');
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+  manifest.host_permissions = [...manifest.host_permissions, 'http://127.0.0.1/*'];
+  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+  return dir;
+}
+
+export const ARTICLE_HTML = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Reading aloud</title>
+<style>body{margin:0;background:#fbfaf7;color:#23212b;font:17px/1.7 Georgia,serif}article{max-width:640px;margin:40px auto;padding:0 24px}h1{font-size:28px;line-height:1.2}</style></head>
+<body><article><h1>The quiet comeback of reading aloud</h1>
+<p id="p1">For most of history, reading was something people did out loud. Silent reading was a skill that monks remarked on as unusual. Now our screens are bringing the older habit back.</p>
+<p id="p2">A good voice changes how long you can stay with a text. It keeps pace when your eyes are tired, and it lets you look away without losing your place.</p>
+</article></body></html>`;
+
 export const test = base.extend({
+  pageAccess: [false, { option: true }],
+
+  // A local page to read from, served on a free port.
+  articleUrl: [async ({}, use) => {
+    const server = http.createServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(ARTICLE_HTML);
+    });
+    await new Promise((r) => server.listen(0, '127.0.0.1', r));
+    await use(`http://127.0.0.1:${server.address().port}/article.html`);
+    await new Promise((r) => server.close(r));
+  }, { scope: 'worker' }],
+
   // One pair of fake engines per worker, reset to "running" before each test.
   engines: [async ({}, use) => {
     const engines = await startFakeEngines();
@@ -17,8 +52,9 @@ export const test = base.extend({
     await engines.close();
   }, { scope: 'worker' }],
 
-  context: async ({ engines, colorScheme, deviceScaleFactor }, use) => {
+  context: async ({ engines, colorScheme, deviceScaleFactor, pageAccess }, use) => {
     engines.reset();
+    const extensionDir = pageAccess ? extensionCopyWithPageAccess() : EXTENSION_DIR;
     const profile = mkdtempSync(join(tmpdir(), 'voicedock-e2e-'));
     const context = await chromium.launchPersistentContext(profile, {
       channel: 'chromium',
@@ -27,14 +63,15 @@ export const test = base.extend({
       deviceScaleFactor,
       viewport: { width: 1100, height: 900 },
       args: [
-        `--disable-extensions-except=${EXTENSION_DIR}`,
-        `--load-extension=${EXTENSION_DIR}`,
+        `--disable-extensions-except=${extensionDir}`,
+        `--load-extension=${extensionDir}`,
         '--autoplay-policy=no-user-gesture-required',
       ],
     });
     await use(context);
     await context.close();
     rmSync(profile, { recursive: true, force: true });
+    if (extensionDir !== EXTENSION_DIR) rmSync(extensionDir, { recursive: true, force: true });
   },
 
   serviceWorker: async ({ context }, use) => {
@@ -59,6 +96,8 @@ export const test = base.extend({
 
   openPopup: async ({ context, extensionId }, use) => {
     await use(async ({ width = 360, height = 600 } = {}) => {
+      // The popup page is 360 px wide; a taller viewport leaves room for the
+      // picker.
       await waitForWelcomeTab(context, extensionId);
       const page = await context.newPage();
       await page.setViewportSize({ width, height });

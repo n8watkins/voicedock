@@ -142,7 +142,8 @@ export function normalizeProfile(profile) {
     id: typeof p.id === 'string' && p.id ? p.id : uuid(),
     name: typeof p.name === 'string' && p.name.trim() ? p.name : 'Profile',
     engine,
-    voice: engine === 'browser' ? '' : voice,
+    // The Basic voice keeps a system voice name, never an engine's voice id.
+    voice: engine === 'browser' && (/\.onnx$/i.test(voice) || /^[a-z][fm]_/.test(voice)) ? '' : voice,
     rate: clampNumber(p.rate, 0.5, 2.5, 1.0),
     volume: clampNumber(p.volume, 0, 2, 1.0),
   };
@@ -308,7 +309,10 @@ export function formatVoiceName(voice, empty = 'Chrome default voice') {
 // compact drops the Kokoro language ("Kokoro · Heart") for the narrow popup.
 export function describeProfileVoice(profile, { compact = false } = {}) {
   const p = normalizeProfile(profile);
-  if (p.engine === 'browser') return compact ? 'Basic voice' : 'Basic voice · built into Chrome';
+  if (p.engine === 'browser') {
+    if (p.voice) return compact ? 'Basic voice' : `Basic voice · ${p.voice}`;
+    return compact ? 'Basic voice' : 'Basic voice · built into Chrome';
+  }
   const kokoro = compact && p.engine === 'kokoro' ? kokoroVoiceDetails(p.voice) : null;
   const voiceName = kokoro ? kokoro.name : formatVoiceName(p.voice, 'default voice');
   return `${engineLabel(p.engine)} · ${voiceName}`;
@@ -354,6 +358,56 @@ export function pickDeviceVoice(voices, lang = 'en-US') {
     || local.find((v) => base && langOf(v).split('-')[0] === base)
     || local[0];
   return match.voiceName;
+}
+
+// ─── Sentences ───────────────────────────────────────────────────────────────
+// VoiceDock reads (and counts, and skips) by sentence. A fragment too short to
+// stand alone ("Dr.", "No.", "1.") joins the next one; a very long sentence
+// breaks at a comma or semicolon so its audio starts quickly.
+const MIN_SENTENCE = 16;
+const MAX_SENTENCE = 320;
+
+function splitLong(sentence) {
+  if (sentence.length <= MAX_SENTENCE) return [sentence];
+  const parts = [];
+  let rest = sentence;
+  while (rest.length > MAX_SENTENCE) {
+    const window = rest.slice(0, MAX_SENTENCE);
+    let cut = Math.max(window.lastIndexOf(', '), window.lastIndexOf('; '), window.lastIndexOf(': '));
+    if (cut < MAX_SENTENCE / 3) cut = window.lastIndexOf(' ');
+    if (cut <= 0) cut = MAX_SENTENCE - 1;
+    parts.push(rest.slice(0, cut + 1).trim());
+    rest = rest.slice(cut + 1).trim();
+  }
+  if (rest) parts.push(rest);
+  return parts;
+}
+
+export function splitSentences(text) {
+  const clean = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!clean) return [];
+  const raw = clean.match(/[^.!?…]+(?:[.!?…]+["'”’)\]]*|$)/g) || [clean];
+  const merged = [];
+  let carry = '';
+  for (const piece of raw.map((p) => p.trim()).filter(Boolean)) {
+    const joined = carry ? `${carry} ${piece}` : piece;
+    if (joined.length < MIN_SENTENCE) { carry = joined; continue; }
+    merged.push(joined);
+    carry = '';
+  }
+  if (carry) {
+    if (merged.length) merged[merged.length - 1] = `${merged[merged.length - 1]} ${carry}`;
+    else merged.push(carry);
+  }
+  return merged.flatMap(splitLong);
+}
+
+// "Sentence 3 of 6", for the popup and the player bar.
+export function sentenceLabel(progress) {
+  const total = Number(progress?.total) || 0;
+  const current = Number(progress?.current) || 0;
+  if (!total || !current) return 'Starting';
+  return total === 1 ? 'One sentence' : `Sentence ${Math.min(current, total)} of ${total}`;
 }
 
 // ─── Engine selection (pure, used by the service worker) ─────────────────────

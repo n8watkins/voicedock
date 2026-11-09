@@ -12,6 +12,7 @@ import {
   normalizeProfile,
   pickDeviceVoice,
   runSettingsMigration,
+  splitSentences,
 } from "./src/shared.js";
 
 const OFFSCREEN_URL  = "offscreen.html";
@@ -154,56 +155,106 @@ function deviceVoiceName() {
   return _deviceVoicePromise;
 }
 
+// A profile can name one of the system's voices; it is used when this device
+// still has it (and runs it on-device), else VoiceDock picks one.
+async function browserVoiceFor(settings) {
+  const wanted = typeof settings?.voice === "string" ? settings.voice : "";
+  if (wanted) {
+    try {
+      const voices = chrome.tts.getVoices ? await chrome.tts.getVoices() : [];
+      if (voices.some(v => v.voiceName === wanted && v.remote !== true)) return wanted;
+    } catch (_) {}
+  }
+  return deviceVoiceName();
+}
+
+// The Basic voice reads one sentence per chrome.tts utterance, so it reports
+// "Sentence 3 of 6" and can skip like the engines.
+let _browserQueue = null; // { sentences, index, settings, voiceName, generation, token, waiting }
+
+function finishBrowserPlayback() {
+  _browserQueue = null;
+  _isPlaying = false;
+  _isPaused  = false;
+  _playbackEngine = null;
+  resetProgress();
+  setStopMenuVisible(false);
+  notifyPlaybackState();
+}
+
+function speakBrowserSentence() {
+  const q = _browserQueue;
+  if (!q || q.generation !== _browserSpeakGeneration || _playbackEngine !== "browser") return;
+  if (q.index >= q.sentences.length) { finishBrowserPlayback(); return; }
+  const total = q.sentences.length;
+  _playbackProgress = { active: true, engine: "browser", current: q.index + 1, total, percent: (q.index + 1) / total, label: `${q.index + 1}/${total}` };
+  notifyPlaybackState();
+  if (_isPaused) { q.waiting = true; return; } // a skip while paused waits for resume
+  q.waiting = false;
+  const token = ++q.token;
+  const mine = () => _browserQueue === q && q.token === token && q.generation === _browserSpeakGeneration && _playbackEngine === "browser";
+  chrome.tts.speak(q.sentences[q.index], {
+    ...(q.voiceName ? { voiceName: q.voiceName } : {}),
+    rate:   _currentRate,
+    pitch:  1.0,
+    volume: Math.min(1, _currentVolume), // chrome.tts can't boost
+    enqueue: false,
+    onEvent: (e) => {
+      if (!mine()) return;
+      if (e.type === "end") {
+        q.index += 1;
+        speakBrowserSentence();
+      } else if (e.type === "interrupted" || e.type === "cancelled") {
+        finishBrowserPlayback();
+      } else if (e.type === "error") {
+        console.error("tts error:", e.errorMessage);
+        finishBrowserPlayback();
+      }
+    }
+  });
+}
+
 async function speakWithBrowser(text, settings) {
   const effectiveSettings = settings || {};
   const generation = ++_browserSpeakGeneration;
   _activeEngineRequest = null;
+  _browserQueue = null;
   chrome.tts.stop();
   _isPlaying = true;   // reuse the playing flag so popup + keyboard toggle work
   _isPaused  = false;
   _playbackEngine = "browser";
   _currentVolume  = Math.min(1, effectiveSettings.volume ?? 1.0); // browser TTS capped at 1
   _currentRate    = effectiveSettings.rate ?? 1.0;
-  _playbackProgress = {
-    active: true,
-    engine: "browser",
-    current: 0,
-    total: 0,
-    percent: null,
-    label: "Basic voice"
-  };
+  const sentences = splitSentences(text);
+  if (sentences.length === 0) sentences.push(String(text || ""));
+  _playbackProgress = { active: true, engine: "browser", current: 0, total: sentences.length, percent: 0, label: "Starting" };
   setStopMenuVisible(true);
   notifyPlaybackState();
-  const voiceName = await deviceVoiceName();
+  const voiceName = await browserVoiceFor(effectiveSettings);
   // Stopped, or another read started, while the voice list loaded.
   if (generation !== _browserSpeakGeneration || _playbackEngine !== "browser") return;
-  chrome.tts.speak(text, {
-    ...(voiceName ? { voiceName } : {}),
-    rate:   effectiveSettings.rate   ?? 1.0,
-    pitch:  1.0,
-    volume: _currentVolume,
-    enqueue: false,
-    onEvent: (e) => {
-      if (generation !== _browserSpeakGeneration || _playbackEngine !== "browser") return;
-      if (e.type === "end" || e.type === "interrupted" || e.type === "cancelled") {
-        _isPlaying = false;
-        _isPaused  = false;
-        _playbackEngine = null;
-        resetProgress();
-        setStopMenuVisible(false);
-        notifyPlaybackState();
-      }
-      if (e.type === "error") {
-        console.error("tts error:", e.errorMessage);
-        _isPlaying = false;
-        _isPaused  = false;
-        _playbackEngine = null;
-        resetProgress();
-        setStopMenuVisible(false);
-        notifyPlaybackState();
-      }
-    }
-  });
+  _browserQueue = { sentences, index: 0, settings: effectiveSettings, voiceName, generation, token: 0, waiting: false };
+  speakBrowserSentence();
+}
+
+// Previous or next sentence, for whichever engine is reading.
+async function skipSentence(delta) {
+  if (!_isPlaying) return;
+  const step = delta < 0 ? -1 : 1;
+  if (_playbackEngine === "browser") {
+    const q = _browserQueue;
+    if (!q) return;
+    q.index = Math.max(0, Math.min(q.sentences.length - 1, q.index + step));
+    q.token += 1; // the interrupted utterance's events are ignored
+    chrome.tts.stop();
+    speakBrowserSentence();
+    return;
+  }
+  const existing = await chrome.runtime.getContexts({
+    contextTypes: ["OFFSCREEN_DOCUMENT"],
+    documentUrls: [chrome.runtime.getURL(OFFSCREEN_URL)]
+  }).catch(() => []);
+  if (existing.length > 0) chrome.runtime.sendMessage({ type: "skip-audio", delta: step }).catch(() => {});
 }
 
 // ─── Engine Health Checks (per engine, 5-second cache) ───────────────────────
@@ -398,6 +449,7 @@ async function stopAll() {
   _playingSourceTabId = null;
   _activeEngineRequest = null;
   _browserSpeakGeneration++;
+  _browserQueue = null;
   resetProgress();
   invalidateEngineCache(); // so the next read checks the engines fresh
   await setStopMenuVisible(false);
@@ -471,32 +523,37 @@ function showTabHint(tab, message) {
   chrome.tabs.sendMessage(tab.id, { type: "show-hint", message }).catch(() => {});
 }
 
+// Reads the selection in a tab with the active profile. Returns
+// { ok, reason } where reason is "no-page" (Chrome doesn't let extensions
+// into that page) or "no-selection".
+async function readFromTab(tab) {
+  if (!tab?.id) return { ok: false, reason: "no-page" };
+  if (!(await ensurePageScript(tab.id))) return { ok: false, reason: "no-page" };
+  const text = await getTabSelection(tab);
+  if (!text) return { ok: false, reason: "no-selection" };
+  const { profiles, activeId } = await getProfileState();
+  const profile = profiles.find(p => p.id === activeId) || profiles[0];
+  if (!profile) return { ok: false, reason: "no-profile" };
+  _playingSourceTabId = tab.id;
+  return speakText(text, profile, tab.id);
+}
+
 async function readSelectionFromActiveTab(commandTab = null) {
   if (_isPlaying) {
     await stopAll();
     return;
   }
-
   const tab = commandTab?.id != null ? commandTab : await getActiveTab();
-  const text = await getTabSelection(tab);
-  if (!text) {
-    showTabHint(tab, "Select text first");
-    return;
-  }
-
-  const { profiles, activeId } = await getProfileState();
-  const profile = profiles.find(p => p.id === activeId) || profiles[0];
-  if (!profile) return;
-
-  _playingSourceTabId = tab.id;
-  await speakText(text, profile, tab.id);
+  const result = await readFromTab(tab);
+  if (result.reason === "no-selection") showTabHint(tab, "Select text first");
 }
 
 async function togglePauseResume() {
   if (_isPaused) {
     _isPaused = false;
     if (_playbackEngine === "browser") {
-      chrome.tts.resume();
+      if (_browserQueue?.waiting) speakBrowserSentence();
+      else chrome.tts.resume();
     } else {
       const existing = await chrome.runtime.getContexts({
         contextTypes: ["OFFSCREEN_DOCUMENT"],
@@ -683,6 +740,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     sendResponse({ ok: true, value });
     return true; // async response
+  }
+
+  // Popup: read the selection in the tab the popup was opened over (opening
+  // the popup granted activeTab for it).
+  if (message.type === "read-active-tab") {
+    getActiveTab()
+      .then((tab) => readFromTab(tab))
+      .then((result) => sendResponse(result))
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+
+  // Popup and player bar: previous or next sentence.
+  if (message.type === "skip-sentence") {
+    skipSentence(message.delta).catch(err => console.error("[skip-sentence]", err));
+    return;
   }
 
   // Keyboard shortcut: Alt+Shift+D - pause/resume toggle

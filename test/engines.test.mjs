@@ -48,6 +48,9 @@ test('normalizeProfile fills in the engine and clamps values', () => {
   assert.equal(normalizeProfile({ id: 'c', name: 'C', engine: 'kokoro', voice: '' }).engine, 'kokoro');
   // A browser profile never carries a stale local voice.
   assert.equal(normalizeProfile({ id: 'd', name: 'D', engine: 'browser', voice: 'af_heart' }).voice, '');
+  // ...but keeps a system voice the user picked for it.
+  assert.equal(normalizeProfile({ id: 'e', name: 'E', engine: 'browser', voice: 'Microsoft Zira - English (United States)' }).voice, 'Microsoft Zira - English (United States)');
+  assert.equal(normalizeProfile({ id: 'f', name: 'F', engine: 'browser', voice: 'en_US-amy-medium.onnx' }).voice, '');
   // Junk input still yields a usable profile.
   const junk = normalizeProfile({ engine: 'tape-deck', rate: 'fast' });
   assert.equal(junk.engine, 'browser');
