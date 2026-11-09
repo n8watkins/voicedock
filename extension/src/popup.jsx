@@ -7,6 +7,7 @@ import {
   engineBaseUrl,
   engineLabel,
   fmt,
+  LOCAL_ENGINE_IDS,
   MAX_PROFILES,
   normalizeProfile,
   runSettingsMigration,
@@ -19,6 +20,7 @@ function PopupApp() {
   const [newProfileName, setNewProfileName] = useState('');
   const [error, setError] = useState('');
   const [status, setStatus] = useState('checking');
+  const [anyLocalOnline, setAnyLocalOnline] = useState(null);
   const [version, setVersion] = useState('');
   const [testing, setTesting] = useState(false);
   const [playback, setPlayback] = useState({ isPlaying: false, isPaused: false, progress: null });
@@ -68,7 +70,7 @@ function PopupApp() {
     };
   }, []);
 
-  // The status dot follows the active profile's engine; the browser voice is
+  // The status dot follows the active profile's engine; the Basic voice is
   // always available.
   const activeEngine = activeProfile?.engine || 'browser';
   useEffect(() => {
@@ -95,6 +97,24 @@ function PopupApp() {
     checkStatus();
     return () => { disposed = true; };
   }, [activeEngine]);
+
+  // Whether Piper or Kokoro runs at all, so a Basic voice profile can point a
+  // new user at the Get started page.
+  useEffect(() => {
+    let disposed = false;
+    Promise.all(LOCAL_ENGINE_IDS.map(async (engine) => {
+      try {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 2500);
+        const res = await fetch(`${engineBaseUrl(engine)}/health`, { signal: ctrl.signal });
+        clearTimeout(timer);
+        return res.ok;
+      } catch (_) {
+        return false;
+      }
+    })).then((results) => { if (!disposed) setAnyLocalOnline(results.some(Boolean)); });
+    return () => { disposed = true; };
+  }, []);
 
   useEffect(() => {
     function poll() {
@@ -174,7 +194,7 @@ function PopupApp() {
       if (response && !response.ok) {
         showError(response.error || 'Test failed.');
       } else if (response?.fellBack) {
-        showError(`${engineLabel(activeEngine)} is offline. Played the browser voice instead.`);
+        showError(`${engineLabel(activeEngine)} isn't running. Played the Basic voice instead.`);
       }
     });
   }
@@ -186,6 +206,18 @@ function PopupApp() {
 
   function openSettings() {
     chrome.tabs.create({ url: chrome.runtime.getURL('options.html#settings') });
+  }
+
+  function openGetStarted() {
+    chrome.tabs.create({ url: chrome.runtime.getURL('options.html#welcome') });
+  }
+
+  // One line under the profile: what a new user needs to know about voices.
+  let engineHint = null;
+  if (activeEngine === 'browser' && anyLocalOnline === false) {
+    engineHint = { text: 'Reading with the voice built into Chrome.', action: 'Get natural voices' };
+  } else if (activeEngine !== 'browser' && status === 'offline') {
+    engineHint = { text: `${engineLabel(activeEngine)} isn't running, so the Basic voice reads.`, action: 'Set it up' };
   }
 
   const progress = playback?.progress;
@@ -220,6 +252,13 @@ function PopupApp() {
           setNewProfileOpen(true);
         }}>＋</button>
       </div>
+
+      {engineHint && (
+        <p className="engine-hint">
+          {engineHint.text}{' '}
+          <button className="engine-hint-link" onClick={openGetStarted}>{engineHint.action} →</button>
+        </p>
+      )}
 
       {newProfileOpen && (
         <div className="new-profile-form">
@@ -272,7 +311,7 @@ function PopupApp() {
         <div className="progress-card">
           <div className="progress-row">
             <span className="progress-status">{playback.isPaused ? 'Paused' : 'Reading'}</span>
-            <span className="progress-label">{progress?.total > 0 ? (progress.label || `${progress.current}/${progress.total}`) : (progress?.label || 'Browser voice')}</span>
+            <span className="progress-label">{progress?.total > 0 ? (progress.label || `${progress.current}/${progress.total}`) : (progress?.label || 'Basic voice')}</span>
           </div>
           <div className="progress-track">
             <span className={`progress-fill ${progress?.total > 0 ? '' : 'is-indeterminate'}`} style={progress?.total > 0 ? { width: `${progressPercent}%` } : undefined} />

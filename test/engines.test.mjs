@@ -101,7 +101,7 @@ test('kokoro voice names are readable', () => {
 });
 
 test('describeProfileVoice names the engine', () => {
-  assert.equal(describeProfileVoice({ voice: '' }), 'Chrome default voice');
+  assert.equal(describeProfileVoice({ voice: '' }), 'Basic voice · built into Chrome');
   assert.equal(describeProfileVoice({ voice: 'en_US-ryan-high.onnx' }), 'Piper · Ryan · High');
   assert.equal(describeProfileVoice({ engine: 'kokoro', voice: 'af_heart' }), 'Kokoro · Heart · US English');
   assert.equal(describeProfileVoice({ engine: 'kokoro', voice: '' }), 'Kokoro · default voice');

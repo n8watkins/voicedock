@@ -11,6 +11,8 @@ import {
   formatVoiceName,
   qualityFromFilename,
   formatBytes,
+  pickDeviceVoice,
+  PIPER_SETUP_COMMANDS,
 } from '../extension/src/shared.js';
 
 test('constants have expected values', () => {
@@ -79,4 +81,24 @@ test('formatBytes renders human-readable sizes', () => {
   assert.equal(formatBytes(2_000), '2 KB');
   assert.equal(formatBytes(5_000_000), '5 MB');
   assert.equal(formatBytes(2_500_000_000), '2.5 GB');
+});
+
+test('pickDeviceVoice prefers an on-device voice in the language, never an online one', () => {
+  const voices = [
+    { voiceName: 'Google US English', lang: 'en-US', remote: true },
+    { voiceName: 'Hedda', lang: 'de-DE', remote: false },
+    { voiceName: 'Daniel', lang: 'en-GB', remote: false },
+    { voiceName: 'Samantha', lang: 'en-US', remote: false },
+  ];
+  assert.equal(pickDeviceVoice(voices, 'en-US'), 'Samantha');
+  assert.equal(pickDeviceVoice(voices, 'en-AU'), 'Daniel');
+  assert.equal(pickDeviceVoice(voices, 'fr-FR'), 'Hedda');
+  assert.equal(pickDeviceVoice([{ voiceName: 'Google US English', lang: 'en-US', remote: true }], 'en-US'), '');
+  assert.equal(pickDeviceVoice(undefined), '');
+});
+
+test('the Piper setup commands avoid "&&" so they work in Windows PowerShell 5.1', () => {
+  assert.ok(PIPER_SETUP_COMMANDS.length >= 3);
+  for (const line of PIPER_SETUP_COMMANDS) assert.doesNotMatch(line, /&&/);
+  assert.equal(PIPER_SETUP_COMMANDS.at(-1), 'npm run setup');
 });

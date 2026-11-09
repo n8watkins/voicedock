@@ -6,7 +6,8 @@ export const APP_NAME = 'VoiceDock';
 
 // ─── Engines ─────────────────────────────────────────────────────────────────
 // Piper and Kokoro are local servers speaking the same API (docs/API.md);
-// "browser" is Chrome's built-in chrome.tts voice.
+// "browser" is the Basic voice: Chrome's built-in speech (chrome.tts), which
+// needs no setup and is what a new install reads with.
 export const ENGINES = {
   piper: {
     id: 'piper',
@@ -24,10 +25,10 @@ export const ENGINES = {
   },
   browser: {
     id: 'browser',
-    label: 'Browser voice',
+    label: 'Basic voice',
     baseUrl: null,
     local: false,
-    blurb: "Chrome's built-in voice: no setup, always available, and the fallback when an engine is offline.",
+    blurb: "Chrome's built-in speech: no setup, always available, and the fallback when Piper or Kokoro isn't running. VoiceDock picks a voice that runs on this device.",
   },
 };
 export const ENGINE_IDS = ['piper', 'kokoro', 'browser'];
@@ -212,7 +213,7 @@ export function formatVoiceName(voice, empty = 'Chrome default voice') {
 // compact drops the Kokoro language ("Kokoro · Heart") for the narrow popup.
 export function describeProfileVoice(profile, { compact = false } = {}) {
   const p = normalizeProfile(profile);
-  if (p.engine === 'browser') return 'Chrome default voice';
+  if (p.engine === 'browser') return compact ? 'Basic voice' : 'Basic voice · built into Chrome';
   const kokoro = compact && p.engine === 'kokoro' ? kokoroVoiceDetails(p.voice) : null;
   const voiceName = kokoro ? kokoro.name : formatVoiceName(p.voice, 'default voice');
   return `${engineLabel(p.engine)} · ${voiceName}`;
@@ -231,6 +232,33 @@ export function formatBytes(bytes) {
   if (bytes >= 1_000_000_000) return `${(bytes / 1_000_000_000).toFixed(1)} GB`;
   if (bytes >= 1_000_000) return `${Math.round(bytes / 1_000_000)} MB`;
   return `${Math.round(bytes / 1_000)} KB`;
+}
+
+// ─── First run ───────────────────────────────────────────────────────────────
+// What a new user runs to get Piper. Separate lines, not "&&", so it works in
+// Windows PowerShell 5.1 as well as macOS and Linux shells.
+export const PIPER_SETUP_COMMANDS = [
+  'git clone https://github.com/n8watkins/voicedock',
+  'cd voicedock/servers/piper',
+  'npm run setup',
+];
+export const SETUP_GUIDE_URL = 'https://github.com/n8watkins/voicedock#piper-server';
+
+// ─── Basic voice: prefer a voice that runs on this device ────────────────────
+// chrome.tts.getVoices() lists the OS voices (remote: false) and, in Google
+// Chrome, Google's online voices (remote: true). VoiceDock asks for an
+// on-device voice in the user's language, then any on-device voice. Returns ''
+// when there is none, and Chrome then uses its own default.
+export function pickDeviceVoice(voices, lang = 'en-US') {
+  const local = (Array.isArray(voices) ? voices : []).filter((v) => v && v.voiceName && v.remote !== true);
+  if (local.length === 0) return '';
+  const want = String(lang || '').toLowerCase();
+  const base = want.split('-')[0];
+  const langOf = (v) => String(v.lang || '').toLowerCase();
+  const match = local.find((v) => langOf(v) === want)
+    || local.find((v) => base && langOf(v).split('-')[0] === base)
+    || local[0];
+  return match.voiceName;
 }
 
 // ─── Engine selection (pure, used by the service worker) ─────────────────────

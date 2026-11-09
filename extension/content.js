@@ -467,7 +467,7 @@
 
     const note = document.createElement("div");
     note.className = "rocker-note";
-    note.textContent = "Can’t change volume or speed while the default voice is playing.";
+    note.textContent = "The Basic voice can’t change volume or speed while it reads.";
 
     panel.append(speed.row, vol.row, note);
     rocker.appendChild(panel);

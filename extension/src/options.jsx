@@ -18,12 +18,16 @@ import {
   MAX_PROFILES,
   normalizeProfile,
   PIPER_BASE_URL,
+  PIPER_SETUP_COMMANDS,
   qualityFromFilename,
+  SETUP_GUIDE_URL,
   runSettingsMigration,
   uuid,
 } from './shared.js';
 
-const TABS = ['profiles', 'voices', 'settings', 'about', 'credits'];
+const TABS = ['welcome', 'profiles', 'voices', 'settings', 'about', 'credits'];
+const TAB_LABELS = { welcome: 'Get started' };
+const SAMPLE_TEXT = 'VoiceDock reads the text you select on any web page. Pick a few sentences, right-click, and choose Read selected text aloud.';
 const CHROME_COMMANDS = [
   ['read-selection', 'Read / Stop toggle'],
   ['pause-resume', 'Pause / Resume'],
@@ -104,7 +108,7 @@ function VoiceSelect({ engine, value, voices, favorites, online, defaultVoice, o
   if (engine === 'browser') {
     return (
       <select className="form-select profile-voice-sel" value="" disabled>
-        <option value="">Chrome default voice</option>
+        <option value="">A voice on this device</option>
       </select>
     );
   }
@@ -170,6 +174,8 @@ function OptionsApp() {
   const [modal, setModal] = useState(null);
   const [chromeCommands, setChromeCommands] = useState([]);
   const [testingVoice, setTestingVoice] = useState('');
+  const [copied, setCopied] = useState(false);
+  const [welcomeNote, setWelcomeNote] = useState('');
   const createNameRef = useRef(null);
 
   const activeProfile = profiles.find((profile) => profile.id === activeId) || profiles[0] || null;
@@ -445,11 +451,11 @@ function OptionsApp() {
     const testSettings = normalizeProfile({ ...settings, name: 'Test' });
     setTestingVoice(testKey(testSettings));
     const voiceName = testSettings.engine === 'browser'
-      ? 'Chrome default voice'
-      : formatVoiceName(testSettings.voice, `${engineLabel(testSettings.engine)} default voice`);
+      ? 'the Basic voice'
+      : `the voice ${formatVoiceName(testSettings.voice, `${engineLabel(testSettings.engine)} default voice`)}`;
     chrome.runtime.sendMessage({
       type: 'test-voice',
-      text: `This is a test of the voice ${voiceName}.`,
+      text: `This is a test of ${voiceName}.`,
       settings: testSettings,
     }, (response) => {
       setTestingVoice('');
@@ -461,9 +467,47 @@ function OptionsApp() {
       if (response && !response.ok) {
         showAlert(`Test failed: ${response.error || 'Unknown error'}`);
       } else if (response?.fellBack) {
-        showAlert(`${engineLabel(testSettings.engine)} is offline, so the browser voice played instead.\n\nStart the ${engineLabel(testSettings.engine)} server to hear this voice (see Settings).`);
+        showAlert(`${engineLabel(testSettings.engine)} isn't running, so the Basic voice played instead.\n\nStart the ${engineLabel(testSettings.engine)} server to hear this voice (see Settings).`);
       }
     });
+  }
+
+  // Get started: read the sample with the active profile and say which voice
+  // actually played.
+  function readSample() {
+    const settings = normalizeProfile(activeProfile || defaultProfile());
+    setTestingVoice('welcome');
+    setWelcomeNote('');
+    chrome.runtime.sendMessage({ type: 'test-voice', text: SAMPLE_TEXT, settings }, (response) => {
+      setTestingVoice('');
+      if (chrome.runtime.lastError || !response) {
+        setWelcomeNote('Something went wrong. Reload the page and try again.');
+      } else if (!response.ok) {
+        setWelcomeNote(`${response.error}. Turn on the Basic voice fallback in Settings to hear it anyway.`);
+      } else if (response.fellBack) {
+        setWelcomeNote(`${engineLabel(settings.engine)} isn't running, so the Basic voice read it instead.`);
+      } else {
+        setWelcomeNote(`Reading with ${describeProfileVoice(settings)}.`);
+      }
+    });
+  }
+
+  function copySetupCommands() {
+    navigator.clipboard.writeText(PIPER_SETUP_COMMANDS.join('\n')).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {});
+  }
+
+  // Points the active profile at a local engine that is now running, with that
+  // engine's default voice.
+  function useEngine(engine) {
+    if (!activeProfile) return;
+    const nextProfiles = profiles.map((profile) => profile.id === activeProfile.id
+      ? { ...profile, engine, voice: defaultVoiceByEngine[engine] || '' }
+      : profile);
+    updateProfiles(nextProfiles, activeProfile.id);
+    setWelcomeNote(`${activeProfile.name} now reads with ${engineLabel(engine)}.`);
   }
 
   async function deleteVoice(filename) {
@@ -540,7 +584,7 @@ function OptionsApp() {
               const state = online === null ? '' : online ? 'online' : 'offline';
               return (
                 <span key={engine} className={`server-badge ${state}`} title={ENGINES[engine].baseUrl}>
-                  {engineLabel(engine)} {online === null ? '…' : online ? 'online ✓' : 'offline ✗'}
+                  {engineLabel(engine)} {online === null ? '…' : online ? 'running ✓' : 'not running'}
                 </span>
               );
             })}
@@ -554,10 +598,92 @@ function OptionsApp() {
       <nav className="tabs" role="tablist">
         {TABS.map((name) => (
           <button key={name} className={`tab ${tab === name ? 'active' : ''}`} role="tab" aria-selected={tab === name} onClick={() => navigateTab(name)}>
-            {name.charAt(0).toUpperCase() + name.slice(1)}
+            {TAB_LABELS[name] || name.charAt(0).toUpperCase() + name.slice(1)}
           </button>
         ))}
       </nav>
+
+      {tab === 'welcome' && (() => {
+        const anyLocal = LOCAL_ENGINE_IDS.some((engine) => engineStatus[engine]);
+        const activeEngine = activeProfile?.engine || 'browser';
+        const readShortcut = shortcutForCommand('read-selection');
+        return (
+        <section className="tab-panel welcome" role="tabpanel">
+          <div className="panel-toolbar"><h2 className="panel-heading">Welcome to VoiceDock</h2></div>
+          <p className="panel-blurb">
+            VoiceDock reads selected text aloud. It works right now with the <strong>Basic voice</strong> built into Chrome.
+            For natural voices, run <strong>Piper</strong> or <strong>Kokoro</strong> on this computer: VoiceDock talks to them only at <code className="setting-code">127.0.0.1</code>, so the text never leaves your machine.
+          </p>
+
+          <div className="settings-group">
+            <h3 className="settings-group-title">1. Try it</h3>
+            <p className="welcome-sample">{SAMPLE_TEXT}</p>
+            <div className="welcome-actions">
+              <button className="btn btn-primary" disabled={testingVoice === 'welcome'} onClick={readSample}>{testingVoice === 'welcome' ? 'Starting…' : '▶ Read this aloud'}</button>
+              <span className="setting-desc">With {activeProfile ? describeProfileVoice(activeProfile) : 'the Basic voice'}</span>
+            </div>
+            {welcomeNote && <p className="welcome-note" role="status">{welcomeNote}</p>}
+            <p className="setting-desc welcome-how">
+              On any page: select text, then right-click and choose <em>Read selected text aloud</em>{readShortcut ? <>, or press <kbd>{readShortcut}</kbd></> : ''}.
+            </p>
+          </div>
+
+          <div className="settings-group">
+            <div className="welcome-group-head">
+              <h3 className="settings-group-title">2. Voices on this computer</h3>
+              <button className="btn btn-ghost btn-sm" onClick={fetchAllVoices}>Check again</button>
+            </div>
+            <ul className="welcome-engines">
+              <li>
+                <span className="welcome-engine-name">Basic voice</span>
+                <span className="setting-status online">Ready</span>
+                <span className="setting-desc">Built into Chrome. No setup.</span>
+              </li>
+              {LOCAL_ENGINE_IDS.map((engine) => {
+                const online = engineStatus[engine];
+                return (
+                  <li key={engine}>
+                    <span className="welcome-engine-name">{engineLabel(engine)}</span>
+                    <span className={`setting-status ${online === null ? '' : online ? 'online' : 'offline'}`}>{online === null ? 'Checking…' : online ? 'Running' : 'Not found'}</span>
+                    <span className="setting-desc">
+                      {engine === 'piper' ? 'Natural voices, light: about 20 MB of RAM when idle.' : 'Optional: the most natural voices, needs Python and more memory.'}
+                    </span>
+                    {online && activeEngine !== engine && activeProfile && (
+                      <button className="btn btn-primary btn-sm welcome-use" onClick={() => useEngine(engine)}>Use {engineLabel(engine)}</button>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+
+          {engineStatus.piper === false && (
+            <div className="settings-group">
+              <h3 className="settings-group-title">3. Set up Piper (about 5 minutes)</h3>
+              <ol className="welcome-steps">
+                <li>Install <a className="link" href="https://nodejs.org/" target="_blank" rel="noreferrer">Node.js</a> (18 or newer) and <a className="link" href="https://git-scm.com/downloads" target="_blank" rel="noreferrer">Git</a> if you don't have them.</li>
+                <li>
+                  Run these in a terminal. They download Piper and one voice (about 90 MB), start the Piper server at <code className="setting-code">127.0.0.1:7477</code>, and add a small tray icon that starts it when you sign in.
+                  <div className="welcome-code">
+                    <pre>{PIPER_SETUP_COMMANDS.join('\n')}</pre>
+                    <button className="btn btn-ghost btn-sm" onClick={copySetupCommands}>{copied ? 'Copied' : 'Copy'}</button>
+                  </div>
+                </li>
+                <li>Come back here and press <strong>Check again</strong>, then <strong>Use Piper</strong>.</li>
+              </ol>
+              <p className="setting-desc">
+                Piper runs as a small local web server on your computer (not a Chrome native messaging host).
+                {' '}<a className="setting-link" href={SETUP_GUIDE_URL} target="_blank" rel="noreferrer">Full setup guide, including Kokoro ↗</a>
+              </p>
+            </div>
+          )}
+
+          {anyLocal && activeEngine !== 'browser' && (
+            <p className="setting-desc welcome-done">You're set: {activeProfile?.name} reads with {engineLabel(activeEngine)}. Add profiles and voices in the other tabs.</p>
+          )}
+        </section>
+        );
+      })()}
 
       {tab === 'profiles' && (
         <section className="tab-panel" role="tabpanel">
@@ -575,7 +701,7 @@ function OptionsApp() {
           </div>
           <p className="panel-blurb">
             A <strong>profile</strong> is a named preset that stores an engine (Piper, Kokoro, or
-            the browser voice), a voice, speed, and volume. Switch between profiles in the popup
+            the Basic voice), a voice, speed, and volume. Switch between profiles in the popup
             using the arrow buttons, for example a fast Piper voice for articles and a natural
             Kokoro voice for long reads. You can have up to 5 profiles.
           </p>
@@ -700,7 +826,7 @@ function OptionsApp() {
           {viewOnline === false && (
             <div className="voices-offline-banner">
               ⚠ The {engineLabel(voicesEngine)} server is offline at <code>{ENGINES[voicesEngine].baseUrl}</code>.
-              {' '}Start it to {voicesEngine === 'piper' ? 'manage' : 'list'} voices; profiles that use it read with the browser voice until then (if the fallback is on).
+              {' '}Start it to {voicesEngine === 'piper' ? 'manage' : 'list'} voices; profiles that use it read with the Basic voice until then (if the fallback is on).
             </div>
           )}
           {voicesEngine === 'piper' && voiceDir && (
@@ -786,8 +912,8 @@ function OptionsApp() {
                 persist({ fallback: event.target.checked });
               }} />
               <div>
-                <span className="setting-label">Browser voice fallback</span>
-                <span className="setting-desc">When a profile's engine (Piper or Kokoro) is offline or fails, read with the browser's built-in voice instead of staying silent.</span>
+                <span className="setting-label">Basic voice fallback</span>
+                <span className="setting-desc">When a profile's engine (Piper or Kokoro) is offline or fails, read with the Basic voice built into Chrome instead of staying silent.</span>
               </div>
             </label>
           </div>
@@ -858,7 +984,7 @@ function OptionsApp() {
               <li><span className="flow-step">2</span><div>The extension's <strong>background service worker</strong> checks that the active profile's engine is reachable: <strong>Piper</strong> at <code>http://127.0.0.1:7477</code> or <strong>Kokoro</strong> at <code>http://127.0.0.1:7478</code>.</div></li>
               <li><span className="flow-step">3</span><div>The text is split into sentence chunks and sent to that <strong>local server</strong> (Node.js running <code>piper.exe</code>, or Python running Kokoro-82M), which sends back WAV audio.</div></li>
               <li><span className="flow-step">4</span><div>An <strong>offscreen document</strong> receives each chunk and plays it through the Web Audio API, because Chrome's Manifest V3 service workers can't play audio directly.</div></li>
-              <li><span className="flow-step">5</span><div>If the engine is offline or generation fails and <em>Browser voice fallback</em> is on (Settings), the browser's built-in voice is used instead, and the page shows a short note saying so.</div></li>
+              <li><span className="flow-step">5</span><div>If the engine is offline or generation fails and <em>Basic voice fallback</em> is on (Settings), the Basic voice built into Chrome is used instead, and the page shows a short note saying so.</div></li>
               <li><span className="flow-step">6</span><div>Use <strong>keyboard shortcuts</strong> across tabs: <kbd>{shortcutForCommand('read-selection') || 'not set'}</kbd> to read selected text or stop playback, and <kbd>{shortcutForCommand('pause-resume') || 'not set'}</kbd> to pause/resume (change them in Settings).</div></li>
             </ol>
           </div>
@@ -868,7 +994,7 @@ function OptionsApp() {
           </div>
           <div className="credits-section">
             <h4 className="credits-section-title">Setup</h4>
-            <p className="credits-body"><strong>Piper</strong> is the light default: about 20 MB of RAM when idle, plus a voice while it reads. <strong>Kokoro</strong> is optional: a 338 MB one-time download and about 300-700 MB of RAM while its model is loaded (it is released after 10 idle minutes), and it needs Python, in WSL on Windows. The <strong>browser voice</strong> needs no setup at all and is the fallback when an engine is offline.</p>
+            <p className="credits-body"><strong>Piper</strong> is the light default: about 20 MB of RAM when idle, plus a voice while it reads. <strong>Kokoro</strong> is optional: a 338 MB one-time download and about 300-700 MB of RAM while its model is loaded (it is released after 10 idle minutes), and it needs Python, in WSL on Windows. The <strong>Basic voice</strong> needs no setup at all and is the fallback when an engine is offline.</p>
             <p className="credits-body">Full installation instructions, including how to set up the Piper and Kokoro servers, add voices, and load the extension, are in the project README.</p>
             <a className="btn btn-primary credits-readme-btn" href="https://github.com/n8watkins/voicedock#readme" target="_blank">View README &amp; Setup Guide ↗</a>
           </div>
