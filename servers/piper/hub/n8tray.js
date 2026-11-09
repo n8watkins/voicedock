@@ -91,7 +91,7 @@ function buildManifest({ port = 7477, installDir = SERVERS_DIR, version = appVer
     name: "VoiceDock",
     version,
     group: "Audio",
-    description: "Local voices for the VoiceDock extension: the engine hub, Piper and Kokoro.",
+    description: "Local voices for the VoiceDock extension: the engine hub, Piper, Kokoro and Pocket TTS.",
     icon: "piper/tray/assets/online.png",
     installDir,
     platforms: ["windows", "macos", "linux"],
@@ -123,6 +123,7 @@ function buildManifest({ port = 7477, installDir = SERVERS_DIR, version = appVer
     owns: [
       { program: piperExe },
       { program: "kokoro/.venv/**/python*", argsContain: "server.py" },
+      { program: "engines/pocket/*/pocket-tts*", argsContain: "serve" },
     ],
     menu: [
       { label: "Engine events", type: "open-url", url: `http://127.0.0.1:${port}/hub/events` },
@@ -167,7 +168,7 @@ function summaryFor(components) {
  * The control plane. hub: hub/engines.js. kokoro: the launcher, for its
  * processes. readers: the Piper reader tracker. onStop: ends the process.
  */
-function createControlPlane({ hub, kokoro, readers, onStop, now = Date.now, version = appVersion() }) {
+function createControlPlane({ hub, kokoro, pocket = null, readers, onStop, now = Date.now, version = appVersion() }) {
   const startedMs = selfStartMs();
   const cpu = createCpuMeter();
   let token = null;
@@ -211,6 +212,17 @@ function createControlPlane({ hub, kokoro, readers, onStop, now = Date.now, vers
         if (p.privateMb != null) entry.privateMb = p.privateMb;
         if (p.role !== "helper") entry.model = { loaded: h.modelLoaded === true };
         processes.push(entry);
+      }
+    }
+    // Pocket TTS: the hub started it and samples its memory itself.
+    if (pocket?.owned()) {
+      await pocket.sampleMemory?.();
+      const h = await pocket.health(1000);
+      for (const p of h?.processes || []) {
+        processes.push({
+          pid: p.pid, startedAt: p.startedAt, parentPid: p.parentPid ?? process.pid, role: "engine",
+          component: "pocket", exe: "pocket-tts", rssMb: p.rssMb ?? 0, cpuPercent: null, model: { loaded: h.modelLoaded === true },
+        });
       }
     }
     for (const r of readers.snapshot().readers) {
@@ -286,7 +298,8 @@ function createControlPlane({ hub, kokoro, readers, onStop, now = Date.now, vers
     next();
   }
 
-  const COMPONENTS = ["piper", "kokoro"];
+  const COMPONENTS = pocket ? ["piper", "kokoro", "pocket"] : ["piper", "kokoro"];
+  const launchers = pocket ? { kokoro, pocket } : { kokoro };
 
   async function engineStart(component) {
     if (component === "piper") {
@@ -297,11 +310,12 @@ function createControlPlane({ hub, kokoro, readers, onStop, now = Date.now, vers
         return { outcome: "refused", message: err.message };
       }
     }
-    const before = await kokoro.health(400);
-    if (before) return { outcome: "already", message: "Kokoro is running." };
+    const name = hub.descriptors[component].name;
+    const before = await launchers[component].health(400);
+    if (before) return { outcome: "already", message: `${name} is running.` };
     try {
       const result = await hub.ensure(component, { manual: true });
-      return { outcome: "ok", message: `Kokoro is ready (${(result.startedMs / 1000).toFixed(1)} s).` };
+      return { outcome: "ok", message: `${name} is ready (${(result.startedMs / 1000).toFixed(1)} s).` };
     } catch (err) {
       const refused = err.code === "not-installed" || err.code === "low-memory";
       return { outcome: refused ? "refused" : "failed", message: err.message };
@@ -310,12 +324,14 @@ function createControlPlane({ hub, kokoro, readers, onStop, now = Date.now, vers
 
   async function engineStop(component) {
     if (component === "piper") return { outcome: "already", message: "Piper has no process while idle." };
-    if (kokoro.owned()) {
-      await hub.stopEngine("kokoro", "asked by N8 Tray");
+    const launcher = launchers[component];
+    const name = hub.descriptors[component].name;
+    if (launcher.owned()) {
+      await hub.stopEngine(component, "asked by N8 Tray");
       return { outcome: "ok" };
     }
-    if (await kokoro.health(400)) return { outcome: "refused", message: "This Kokoro was started outside VoiceDock, so VoiceDock leaves it alone." };
-    return { outcome: "already", message: "Kokoro is not running." };
+    if (await launcher.health(400)) return { outcome: "refused", message: `This ${name} was started outside VoiceDock, so VoiceDock leaves it alone.` };
+    return { outcome: "already", message: `${name} is not running.` };
   }
 
   const router = express.Router();

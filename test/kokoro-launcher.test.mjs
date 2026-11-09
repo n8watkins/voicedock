@@ -176,7 +176,7 @@ test('the 1.1 routes: the extension starts Kokoro, and only a local program (the
   const base = `http://127.0.0.1:${server.address().port}`;
   try {
     const engines = await (await fetch(`${base}/engines`)).json();
-    assert.deepEqual(engines.engines.map((e) => e.id), ['piper', 'kokoro']);
+    assert.deepEqual(engines.engines.map((e) => e.id), ['piper', 'kokoro', 'pocket']);
     assert.equal(engines.engines[1].state, 'idle', 'set up and stopped: starts when you read');
     const started = await fetch(`${base}/engines/kokoro/start`, { method: 'POST' });
     assert.equal(started.status, 200);

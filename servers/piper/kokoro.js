@@ -33,17 +33,12 @@
 const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
+const { createCrashTracker, crashBackoffMs } = require("./hub/crashes");
 
 const KOKORO_PORT = Number(process.env.KOKORO_PORT || 7478);
 const KOKORO_HOST = "127.0.0.1";
 const START_TIMEOUT_MS = 25_000;
 const DEFAULT_STOP_AFTER_SECONDS = 1800;
-const CRASH_WINDOW_MS = 10 * 60_000;
-const CRASHES_TO_FAIL = 5;
-const MAX_BACKOFF_MS = 60_000;
-// A start waits out a backoff this short; a longer one is refused instead,
-// so a read never hangs on a crashing engine.
-const MAX_BACKOFF_WAIT_MS = 4_000;
 
 function kokoroDir() {
   return path.resolve(process.env.KOKORO_DIR || path.join(__dirname, "..", "kokoro"));
@@ -121,13 +116,6 @@ function readVoiceNames(file) {
   }
 }
 
-// Backoff before the next start after `consecutive` crashes in a row:
-// none after the first, then 1, 2, 4 ... 60 s.
-function crashBackoffMs(consecutive) {
-  if (consecutive < 2) return 0;
-  return Math.min(MAX_BACKOFF_MS, 1000 * 2 ** (consecutive - 2));
-}
-
 async function kokoroHealth(timeoutMs = 800) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -174,11 +162,7 @@ function createKokoroLauncher({
   let startedAt = null;
   let lastStartMs = null; // process start to first /health answer, last time
   let lastModelLoadMs = null; // Kokoro's last model load, kept after it stops
-  let crashes = [];       // times of recent crashes (within CRASH_WINDOW_MS)
-  let consecutive = 0;    // crashes since the last clean run
-  let lastCrashAt = null;
-  let lastError = null;
-  let failed = false;     // 5 crashes in 10 minutes: no more starts on demand
+  const crashes = createCrashTracker({ name: "Kokoro", now, log }); // backoff, "failed" after 5 in 10 min
   let outside = { at: -Infinity, health: null }; // last check while not ours
 
   // /health for status reports. While this server runs Kokoro it answers
@@ -193,22 +177,7 @@ function createKokoroLauncher({
     return h;
   }
 
-  function recordCrash(reason) {
-    const t = now();
-    lastCrashAt = t;
-    lastError = reason;
-    consecutive += 1;
-    crashes = crashes.filter((c) => t - c < CRASH_WINDOW_MS).concat(t);
-    if (crashes.length >= CRASHES_TO_FAIL && !failed) {
-      failed = true;
-      log.error?.(`[kokoro] failed: ${crashes.length} crashes in 10 minutes; it starts again only when asked by hand`);
-    }
-  }
-
-  function backoffLeftMs() {
-    if (lastCrashAt == null) return 0;
-    return Math.max(0, lastCrashAt + crashBackoffMs(consecutive) - now());
-  }
+  const recordCrash = (reason) => crashes.record(reason);
 
   function owned() {
     return child !== null && child.exitCode === null && child.signalCode === null;
@@ -283,23 +252,8 @@ function createKokoroLauncher({
       err.code = "not-installed";
       throw err;
     }
-    if (manual) {
-      failed = false;
-      crashes = [];
-      consecutive = 0;
-      lastCrashAt = null;
-    }
-    if (failed) {
-      const err = new Error(`Kokoro keeps crashing (${lastError}); start it by hand to try again`);
-      err.code = "failed";
-      throw err;
-    }
-    const wait = backoffLeftMs();
-    if (wait > MAX_BACKOFF_WAIT_MS) {
-      const err = new Error(`Kokoro crashed; it can start again in ${Math.ceil(wait / 1000)} s`);
-      err.code = "failed";
-      throw err;
-    }
+    if (manual) crashes.reset();
+    const wait = crashes.gate();
     const began = Date.now();
     starting = (async () => {
       try {
@@ -327,7 +281,7 @@ function createKokoroLauncher({
     if (!owned()) return false;
     const proc = child;
     child = null;
-    consecutive = 0;
+    crashes.cleanStop();
     try { proc.kill(); } catch (_) {}
     return true;
   }
@@ -356,7 +310,7 @@ function createKokoroLauncher({
     if (starting) state = "starting";
     else if (h) state = h.modelLoading ? "starting" : "ready";
     else if (missing) state = "not-installed";
-    else if (failed) state = "failed";
+    else if (crashes.failed()) state = "failed";
     return {
       id: "kokoro",
       state,
@@ -369,11 +323,11 @@ function createKokoroLauncher({
       stopAfterSeconds: stopAfterSeconds(env),
       setup: missing,
       setupState: setupState(missing),
-      startsOnDemand: !missing && !failed,
+      startsOnDemand: !missing && !crashes.failed(),
       lastStartMs,
       modelLoadMs: lastModelLoadMs,
-      lastError,
-      restartInSeconds: Math.ceil(backoffLeftMs() / 1000),
+      lastError: crashes.lastError(),
+      restartInSeconds: Math.ceil(crashes.backoffLeftMs() / 1000),
       health: h || null,
     };
   }

@@ -137,6 +137,8 @@ jobs:
           for i in $(seq 1 50); do curl -sf http://127.0.0.1:7477/health > /dev/null && break; sleep 0.2; done
           n8tray-contract probe "$N8TRAY_MODULES_DIR/voicedock.json" --action engine.start --component kokoro
           n8tray-contract probe "$N8TRAY_MODULES_DIR/voicedock.json" --action engine.stop --component kokoro
+          n8tray-contract probe "$N8TRAY_MODULES_DIR/voicedock.json" --action engine.start --component pocket
+          n8tray-contract probe "$N8TRAY_MODULES_DIR/voicedock.json" --action engine.stop --component pocket
 
       - name: The hub's log
         if: always()

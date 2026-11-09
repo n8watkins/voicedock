@@ -3,7 +3,7 @@
 A Chrome extension that reads selected text aloud with neural voices running on your own machine.
 Highlight text on any webpage, right-click it (or press `Alt+Shift+S`), and hear it read by a local engine: no cloud, no API keys, no text leaves your computer.
 
-VoiceDock has two local engines, chosen per profile:
+VoiceDock has three local engines, chosen per profile:
 
 - **[Piper](https://github.com/rhasspy/piper)**, the light default: fast, with downloadable English voices (Node.js server on port 7477).
   It idles at about 20 MB of RAM and loads a voice (60-150 MB) only while it reads.
@@ -11,6 +11,9 @@ VoiceDock has two local engines, chosen per profile:
   It costs a 338 MB one-time download and about 500-600 MB of RAM while it reads.
   It runs only while you use it: the Piper server starts it on your first Kokoro read and stops it after 30 idle minutes.
   It installs with [uv](https://docs.astral.sh/uv/) on Windows, macOS and Linux (no WSL).
+- **[Pocket TTS](https://github.com/kyutai-labs/pocket-tts)** by Kyutai, optional: natural English with 26 voices, fast on the CPU, and audio that starts while the rest is still being made.
+  It is one program (no Python) plus a 222 MB model, installed from VoiceDock's signed catalog.
+  It runs only while you use it: the hub starts it on your first Pocket read (about 1 s) and stops it after 10 idle minutes.
 
 The Basic voice (Chrome's built-in speech) is the zero-setup choice and the automatic fallback when an engine is offline, so the extension works instantly with no server at all.
 Set up Piper for natural local voices, and add Kokoro only if you want its voices and have the memory to spare.
@@ -201,6 +204,28 @@ If another Piper server is already running, the tray shows it as external and wo
 
 To add voices later, put each `.onnx` and `.onnx.json` pair in `servers/piper/piper/voices/` (the **Open folder** button in Voices & Engines opens it), then restart the server.
 Test, star, or delete voices from **Voices & Engines**, under Voices, with Piper selected.
+
+#### Pocket TTS (optional)
+
+Pocket TTS runs Kyutai's official program for your OS, checked against VoiceDock's signed catalog, so there is no Python to install.
+It needs the Piper server set up first (the hub runs Pocket TTS), and on Intel or AMD a CPU with AVX2 (any from the last ten years).
+No Hugging Face account is needed: VoiceDock downloads the model without voice cloning.
+
+In `servers/piper`:
+
+1. Install the program (about 8 MB). It shows the license and terms first and asks you to accept them:
+   ```bash
+   node engines.js install pocket
+   ```
+2. Download its model (about 222 MB) into `servers/engines/pocket/data`; each file is checked against the catalog:
+   ```bash
+   node engines.js model pocket
+   ```
+3. Restart VoiceDock's server (the tray's **Restart**).
+
+**How you know it worked:** Voices & Engines shows Pocket TTS as **Starts when you read**.
+Each of the other 25 voices downloads about 6 MB the first time you use it.
+`node engines.js rollback pocket` goes back to the version before an update, and `node engines.js uninstall pocket` removes it and its model.
 
 #### Kokoro server (optional)
 
@@ -433,6 +458,8 @@ Common causes: no Piper voice downloaded, a missing `piper.exe`, or Kokoro not s
 - [Piper](https://github.com/rhasspy/piper): fast, offline neural TTS by rhasspy, and the [Piper voices](https://huggingface.co/rhasspy/piper-voices).
 - [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M): open-weight TTS model by hexgrad (Apache 2.0).
 - [kokoro-onnx](https://github.com/thewh1teagle/kokoro-onnx): runs Kokoro with ONNX Runtime.
+- [Pocket TTS](https://github.com/kyutai-labs/pocket-tts) by Kyutai: the program is MIT; the [model](https://huggingface.co/kyutai/pocket-tts) is CC-BY-4.0, and its [voices](https://huggingface.co/kyutai/tts-voices) carry their own licenses.
+  Kyutai's terms forbid imitating or cloning a voice without the speaker's explicit and lawful consent, deceiving people, and presenting generated speech as a real recording. VoiceDock offers only the built-in voices.
 - Chrome Offscreen Documents API (Manifest V3).
 
 MIT License: free to use, fork, and share.

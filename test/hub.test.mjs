@@ -314,6 +314,7 @@ before(async () => {
   writeFileSync(join(voiceDir, 'en_US-test-medium.onnx.json'), '{}');
   process.env.VOICE_DIR = voiceDir;
   process.env.PIPER_BIN = process.execPath; // exists; never run here
+  process.env.VOICEDOCK_ENGINES_DIR = mkdtempSync(join(tmpdir(), 'voicedock-hub-engines-')); // no Pocket TTS installed
 
   ({ app } = require('../servers/piper/server.js'));
   app.locals.kokoro = fakeKokoro();
@@ -350,7 +351,7 @@ test('the control plane refuses what it must', async () => {
   assert.equal((await fetch(status, { headers: { ...auth(), Origin: 'chrome-extension://abc' } })).status, 403, 'any Origin, even the extension');
   const unknown = await fetch(`${base}/n8/v2/actions/no-such-action`, { method: 'POST', headers: { ...auth(), 'Content-Type': 'application/json' }, body: '{}' });
   assert.equal(unknown.status, 404);
-  const noComponent = await fetch(`${base}/n8/v2/actions/engine.start`, { method: 'POST', headers: { ...auth(), 'Content-Type': 'application/json' }, body: '{"component":"pocket"}' });
+  const noComponent = await fetch(`${base}/n8/v2/actions/engine.start`, { method: 'POST', headers: { ...auth(), 'Content-Type': 'application/json' }, body: '{"component":"espeak"}' });
   assert.equal(noComponent.status, 400);
 });
 
@@ -374,7 +375,7 @@ test('the status document has the hub, its components and fresh resources', asyn
   assert.equal(doc.id, 'voicedock');
   assert.equal(doc.pid, process.pid);
   assert.equal(doc.state, 'ready');
-  assert.deepEqual(doc.components.map((c) => [c.id, c.state]), [['piper', 'ready'], ['kokoro', 'idle']]);
+  assert.deepEqual(doc.components.map((c) => [c.id, c.state]), [['piper', 'ready'], ['kokoro', 'idle'], ['pocket', 'not-installed']]);
   assert.equal(doc.resources.processes[0].pid, process.pid);
   assert.equal(doc.resources.processes[0].role, 'hub');
   assert.ok(Math.abs(Date.parse(doc.pidStartedAt) - (Date.now() - process.uptime() * 1000)) < 2000);
