@@ -25,12 +25,12 @@ const express = require("express");
 const { isoMs, selfStartMs, createCpuMeter, selfMemory } = require("./procinfo");
 
 const APP_ID = "voicedock";
-const SERVERS_DIR = path.resolve(__dirname, "..", "..");
+const { SERVERS_DIR, PIPER_DIR } = require("./paths");
 const STATUS_INTERVAL_SECONDS = 5;
 
 // The version N8 Tray shows: the VoiceDock release this checkout is.
 function appVersion() {
-  for (const file of [path.join(SERVERS_DIR, "..", "package.json"), path.join(__dirname, "..", "package.json")]) {
+  for (const file of [path.join(SERVERS_DIR, "..", "package.json"), path.join(PIPER_DIR, "package.json")]) {
     try {
       const { version } = JSON.parse(fs.readFileSync(file, "utf8"));
       if (typeof version === "string") return version;
@@ -83,7 +83,9 @@ function writeAtomic(file, text, mode) {
 }
 
 // ─── The manifest (spec section 3) ─────────────────────────────────────────
-function buildManifest({ port = 7477, installDir = SERVERS_DIR, version = appVersion(), platform = process.platform } = {}) {
+// program: the single-file hub (piper/voicedock-hub.exe), run directly;
+// without it N8 Tray runs piper/server.js with Node.
+function buildManifest({ port = 7477, installDir = SERVERS_DIR, version = appVersion(), platform = process.platform, program = null } = {}) {
   const piperExe = platform === "win32" ? "piper/piper/piper.exe" : "piper/piper/piper";
   return {
     contract: 2,
@@ -96,13 +98,9 @@ function buildManifest({ port = 7477, installDir = SERVERS_DIR, version = appVer
     installDir,
     platforms: ["windows", "macos", "linux"],
     status: { type: "http", url: `http://127.0.0.1:${port}/n8/v2/status`, intervalSeconds: 3, timeoutMs: 300 },
-    run: {
-      interpreter: "node",
-      script: "piper/server.js",
-      args: ["--managed"],
-      cwd: "piper",
-      stop: { type: "http", graceSeconds: 10 },
-    },
+    run: program
+      ? { program, args: ["--managed"], cwd: "piper", stop: { type: "http", graceSeconds: 10 } }
+      : { interpreter: "node", script: "piper/server.js", args: ["--managed"], cwd: "piper", stop: { type: "http", graceSeconds: 10 } },
     actions: [
       { id: "engine.start", label: "Start {component}", type: "http", component: true },
       { id: "engine.stop", label: "Stop {component}", type: "http", component: true },
@@ -121,6 +119,7 @@ function buildManifest({ port = 7477, installDir = SERVERS_DIR, version = appVer
     },
     open: { logs: "piper/logs", folder: "piper" },
     owns: [
+      ...(program ? [{ program }] : []),
       { program: piperExe },
       { program: "kokoro/.venv/**/python*", argsContain: "server.py" },
       { program: "engines/pocket/*/pocket-tts*", argsContain: "serve" },

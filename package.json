@@ -22,7 +22,8 @@
     "release:artifacts": "node tools/package-store.mjs --out release-artifacts",
     "test:kokoro": "python3 -m unittest discover -s servers/kokoro/tests",
     "catalog:sign": "node tools/catalog-sign.mjs sign",
-    "catalog:verify": "node tools/catalog-sign.mjs verify"
+    "catalog:verify": "node tools/catalog-sign.mjs verify",
+    "build:hub": "node tools/build-hub.mjs --smoke"
   },
   "dependencies": {
     "react": "^19.3.1",
@@ -32,6 +33,7 @@
     "@axe-core/playwright": "4.14.0",
     "@playwright/test": "1.64.1",
     "esbuild": "^0.28.0",
+    "postject": "^1.0.0-alpha.6",
     "release-kit": "github:n8watkins/release-kit#v2.9.0"
   },
   "engines": {

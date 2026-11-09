@@ -19,9 +19,10 @@ const fs = require("fs");
 const path = require("path");
 const { execFile } = require("child_process");
 const { loadCatalog, engineVersion, programFor, platformKey } = require("./catalog");
+const { SERVERS_DIR } = require("./paths");
 
 function enginesDir(env = process.env) {
-  return path.resolve(env.VOICEDOCK_ENGINES_DIR || path.join(__dirname, "..", "..", "engines"));
+  return path.resolve(env.VOICEDOCK_ENGINES_DIR || path.join(SERVERS_DIR, "engines"));
 }
 
 const VERSION_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
