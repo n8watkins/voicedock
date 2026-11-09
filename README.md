@@ -11,7 +11,7 @@ VoiceDock has two local engines, chosen per profile:
   It costs a 338 MB one-time download and about 300-700 MB of RAM while its model is loaded; the model loads on the first read and is released after 10 idle minutes, leaving about 45 MB.
   It needs Python, which on Windows means WSL.
 
-The browser's built-in voice is the zero-setup choice and the automatic fallback when an engine is offline, so the extension works instantly with no server at all.
+The Basic voice (Chrome's built-in speech) is the zero-setup choice and the automatic fallback when an engine is offline, so the extension works instantly with no server at all.
 Set up Piper for natural local voices, and add Kokoro only if you want its voices and have the memory to spare.
 
 > VoiceDock was called **Piper TTS** up to version 1.0.17.
@@ -114,14 +114,15 @@ cd voicedock
 The VoiceDock icon appears in the toolbar.
 
 > **You can stop here.**
-> The extension already reads with your browser's built-in voice.
+> The extension already reads with the Basic voice built into Chrome.
+> A new install opens a **Get started** page that reads a sample, shows whether Piper and Kokoro are running, and gives the Piper setup commands.
 > For natural local voices, set up one or both engines below.
 
 The built React bundles are committed under `extension/dist/`, so no build step is needed just to load the extension.
 
 ### Step 3 - Set up an engine
 
-Set up whichever engines you want; profiles that use an engine that isn't running fall back to the browser voice.
+Set up whichever engines you want; profiles that use an engine that isn't running fall back to the Basic voice.
 Start with Piper: it is light and quick to install.
 Kokoro is optional (see [Kokoro server](#kokoro-server) for what it costs).
 
@@ -211,7 +212,7 @@ Stop with `Alt+Shift+S` again, the popup's **Stop** button, or right-click → *
 
 Rebind them at `chrome://extensions/shortcuts` (the Settings tab links there).
 
-**Profiles:** each profile stores an engine (Piper, Kokoro, or the browser voice), a voice, a speed, and a volume.
+**Profiles:** each profile stores an engine (Piper, Kokoro, or the Basic voice), a voice, a speed, and a volume.
 Switch profiles with the `‹` / `›` arrows in the popup, or use **Read as…** in the right-click menu.
 
 **While reading:** the on-page overlay shows progress and lets you nudge speed and volume for the current reading without changing the profile.
@@ -222,9 +223,10 @@ Switch profiles with the `‹` / `›` arrows in the popup, or use **Read as…*
 
 | Tab | What you can do |
 | --- | --- |
+| **Get started** | Opens on a new install: read a sample, see which voices are running, set up Piper in three steps, and switch the profile to Piper or Kokoro once it runs. |
 | **Profiles** | Create, edit, and delete up to 5 profiles, each with an engine, voice, speed, and volume. |
 | **Voices** | Switch between Piper and Kokoro, test voices, and star up to 5 favorites per engine. Piper voices can be deleted from disk. |
-| **Settings** | The browser voice fallback, each engine server's address and status with setup hints, and keyboard shortcuts. |
+| **Settings** | The Basic voice fallback, each engine server's address and status with setup hints, and keyboard shortcuts. |
 | **About** | How selected text flows through the engine servers and the offscreen player. |
 | **Credits** | Piper, Kokoro, and the other open-source pieces. |
 
@@ -232,7 +234,7 @@ Switch profiles with the `‹` / `›` arrows in the popup, or use **Read as…*
 
 ## Engines compared
 
-| | Browser voice | Piper | Kokoro |
+| | Basic voice | Piper | Kokoro |
 | --- | --- | --- | --- |
 | Setup | None | `npm run setup` (Node.js) | Optional: Python, WSL on Windows |
 | Download | None | Piper plus about 60-120 MB per voice | 338 MB, once |
@@ -245,7 +247,7 @@ Switch profiles with the `‹` / `›` arrows in the popup, or use **Read as…*
 | Manage voices in the app | No | Install, test, favorite, delete | Test, favorite |
 | Speed control | Yes | Yes, live | Yes, live |
 | Volume | Up to the browser max | Up to 2× gain | Up to 2× gain |
-| When the engine is down | Always available | Falls back to the browser voice (if on) | Falls back to the browser voice (if on) |
+| When the engine is down | Always available | Falls back to the Basic voice (if on) | Falls back to the Basic voice (if on) |
 
 ---
 
@@ -302,6 +304,7 @@ The file is self-contained (inline SVG, no network), so it can be kept or shared
 ## Privacy and security
 
 VoiceDock sends selected text only to servers on your own machine.
+The Basic voice asks Chrome for a voice that runs on this device (an operating system voice); only when the system has none does Chrome use its own default, which in Google Chrome can be an online Google voice.
 Both servers bind to `127.0.0.1` and reject requests from web pages: only requests from a Chrome extension, or with no `Origin` header at all (curl, scripts), are served.
 So a site you visit can't use your local engines.
 
@@ -329,7 +332,7 @@ Piper: run `npm start` (or the tray) in `servers/piper/` and check that port 747
 Kokoro: run `systemctl --user status kokoro-tts` in WSL, or `./start.sh` in `servers/kokoro/`, and check port 7478.
 Then press **Check again** on the Settings tab.
 
-**A profile sounds like the browser voice.**
+**A profile sounds like the Basic voice.**
 Its engine is offline and the fallback kicked in; the page shows a short note when that happens.
 Start the engine, or turn the fallback off in Settings to get an error instead.
 
@@ -341,7 +344,7 @@ Common causes: no Piper voice downloaded, a missing `piper.exe`, or the Kokoro m
 
 ## Roadmap
 
-- [x] Browser voice (no setup)
+- [x] Basic voice (no setup)
 - [x] Local Piper server, offscreen playback, sentence chunking with prefetch
 - [x] Named profiles, voice management, keyboard shortcuts, on-page overlay
 - [x] Windows tray and one-command Piper setup
