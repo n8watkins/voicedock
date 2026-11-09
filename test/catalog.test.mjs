@@ -50,6 +50,17 @@ test('the committed catalog is signed with the built-in key, and lists Pocket TT
   assert.throws(() => loadCatalog({ minSerial: c.serial + 1 }), /older/);
 });
 
+test("Git never changes the catalog's line endings, and a CRLF copy says why it fails", () => {
+  for (const file of ['engines.json', 'engines.json.minisig', 'voicedock-catalog.pub']) {
+    const out = execFileSync('git', ['check-attr', 'text', `servers/catalog/${file}`], { encoding: 'utf8' });
+    assert.match(out, /text: unset/, file);
+  }
+  const dir = mkdtempSync(join(tmpdir(), 'vd-crlf-'));
+  writeFileSync(join(dir, 'engines.json'), readFileSync(join(CATALOG_DIR, 'engines.json'), 'utf8').replace(/\n/g, '\r\n'));
+  writeFileSync(join(dir, 'engines.json.minisig'), readFileSync(join(CATALOG_DIR, 'engines.json.minisig')));
+  assert.throws(() => loadCatalog({ dir }), /CRLF/);
+});
+
 test('platform keys', () => {
   assert.equal(platformKey('win32', 'x64'), 'windows-x64');
   assert.equal(platformKey('darwin', 'arm64'), 'macos-arm64');
