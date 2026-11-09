@@ -2,9 +2,12 @@ $ErrorActionPreference = "Stop"
 
 $ServerDir = Split-Path -Parent $PSScriptRoot
 $LogDir = Join-Path $ServerDir "logs"
-$LogFile = Join-Path $LogDir "piper-tts-background.log"
-$PidFile = Join-Path $LogDir "piper-tts-server.pid"
-$WrapperPidFile = Join-Path $LogDir "piper-tts-wrapper.pid"
+$LogFile = Join-Path $LogDir "voicedock-piper-background.log"
+$PidFile = Join-Path $LogDir "voicedock-piper.pid"
+$WrapperPidFile = Join-Path $LogDir "voicedock-piper-wrapper.pid"
+# Names before VoiceDock 1.2, still stopped for one release.
+$LegacyPidFile = Join-Path $LogDir "piper-tts-server.pid" # legacy-name
+$LegacyWrapperPidFile = Join-Path $LogDir "piper-tts-wrapper.pid" # legacy-name
 
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 
@@ -40,6 +43,8 @@ function Stop-PidFileProcess {
   Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
 }
 
-Stop-PidFileProcess -Path $PidFile -Label "Piper TTS server"
+Stop-PidFileProcess -Path $PidFile -Label "VoiceDock Piper server"
+if (Test-Path $LegacyPidFile) { Stop-PidFileProcess -Path $LegacyPidFile -Label "VoiceDock Piper server (1.1 pid file)" }
 Start-Sleep -Milliseconds 300
-Stop-PidFileProcess -Path $WrapperPidFile -Label "Piper TTS wrapper"
+Stop-PidFileProcess -Path $WrapperPidFile -Label "VoiceDock Piper wrapper"
+if (Test-Path $LegacyWrapperPidFile) { Stop-PidFileProcess -Path $LegacyWrapperPidFile -Label "VoiceDock Piper wrapper (1.1 pid file)" }

@@ -1,9 +1,9 @@
 # Naming
 
-**VoiceDock** is the name of the merged product (Piper TTS + Kokoro TTS), decided 2026-11-02.
+**VoiceDock** is the name of the merged product (Piper TTS + Kokoro TTS), decided 2026-11-02. <!-- legacy-name -->
 LocalVoice was the working name on 2026-11-01, dropped because its npm name and both domains are taken.
-The code, extension, docs and GitHub repo (`n8watkins/voicedock`, renamed from `n8watkins/piper-tts`) use it.
-The Chrome Web Store listing is still "Piper TTS" until the next store upload.
+The code, extension, docs and GitHub repo (`n8watkins/voicedock`, renamed from `n8watkins/piper-tts`) use it. <!-- legacy-name -->
+The Chrome Web Store listing keeps the old name until the next store upload.
 
 This page keeps the availability check that picked the name with a quick availability check, then what a rename touches.
 
@@ -42,7 +42,7 @@ The extension's store title can carry a descriptor either way, for example "Voic
 
 Do these together, in this order, so links never break for long.
 
-1. **GitHub repo** (`n8watkins/piper-tts` → new name), in Settings → General → Repository name.
+1. **GitHub repo** (`n8watkins/piper-tts` → new name), in Settings → General → Repository name. <!-- legacy-name -->
    GitHub redirects the old URL (web, `git clone`, `git push`, API) to the new one until a new repo takes the old name, so existing clones keep working.
    Afterwards, update local remotes anyway (`git remote set-url origin https://github.com/n8watkins/<name>.git`) on WSL and in the Windows clone.
    Links to update in this repo: the README clone command, the Setup guide and README links in `extension/src/options.jsx` (Settings, About and Credits tabs), and `.local-ops.yaml` if it is used.
@@ -54,9 +54,10 @@ Do these together, in this order, so links never break for long.
    The new version adds the `http://127.0.0.1:7478/*` host permission; it is the same host as the existing 7477 permission, so Chrome shouldn't show a new permission warning, but check the dashboard's permission preview before publishing.
 4. **N8 Tray module**: done.
    `n8voice` (shown as "VoiceDock", in `C:\Users\natha\scripts\n8tray\n8voice`) replaced `n8piper` on 2026-11-02; see `docs/TRAY_PLAN.md`.
-5. **Windows folders**: Chrome loads the unpacked extension from `C:\Users\natha\Projects\Tools\piper-tts\extension`.
+5. **Windows folders**: done.
+   Chrome loads the unpacked extension from `C:\Users\natha\Extensions\voicedock` (see `UPDATE_WINDOWS_SERVER.md`).
    An unpacked extension's ID comes from its folder path, so renaming that folder resets the locally loaded extension's settings.
    Leave it, or re-create profiles after moving it (the store version is unaffected).
 6. **Standalone tray** (`servers/piper/tray`): done.
-   It is now the **VoiceDock tray** (`tray/voicedock-tray.js`, startup shortcut `VoiceDock Tray`), shows both engines, and replaces an old `Piper TTS Tray` shortcut on its first start.
+   It is now the **VoiceDock tray** (`tray/voicedock-tray.js`, startup shortcut `VoiceDock Tray`), shows both engines, and replaces an old `Piper TTS Tray` shortcut on its first start. <!-- legacy-name -->
 7. **kokoro-tts repo**: already points to this repo's `servers/kokoro`; update that pointer if the repo is renamed (GitHub's redirect covers it meanwhile).

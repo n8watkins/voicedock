@@ -37,6 +37,9 @@ jobs:
       - name: Python version
         run: python3 --version
 
+      - name: The old product name stays gone
+        run: npm run check:names
+
       - name: Tests (extension, Piper server, Kokoro server)
         run: npm test
 

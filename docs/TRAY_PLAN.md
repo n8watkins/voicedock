@@ -90,7 +90,7 @@ The right-click menu shows one status line, for example `VoiceDock: Piper runnin
 
 ## Migration from n8piper (done 2026-11-02)
 
-1. N8 Tray rewrites a `piper-tts` module entry in `config\settings.json` to `n8voice` on load, keeping `enabled` and `autoStart`.
+1. N8 Tray rewrites a `piper-tts` module entry in `config\settings.json` to `n8voice` on load, keeping `enabled` and `autoStart`. <!-- legacy-name -->
 2. `n8piper\config\settings.json` `server.*` was copied to `n8voice\config\settings.json` `piper.*`.
 3. The `n8piper` folder was removed from the repo; its code is in git history (`git log -- n8piper`).
 

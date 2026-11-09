@@ -16,7 +16,7 @@ Two real bugs were found and fixed in PR #22; the rest are low-severity hardenin
 ## Findings fixed in PR #22
 
 1. **Medium: Stop Piper could kill an unrelated process** (`servers/piper/tray/voicedock-tray.js:103`, `:319`, `:335`).
-   `managedPid()` trusted `logs/piper-tts-server.pid` plus "a process with that pid is alive".
+   `managedPid()` trusted `logs/piper-tts-server.pid` plus "a process with that pid is alive". <!-- legacy-name -->
    After the server crashes, Windows can give that pid to another process: the tray then enabled Stop and Restart, `process.kill` would terminate that process, and crash supervision (`!managed`) never restarted Piper.
    Fix: the server counts as the tray's own only while the child it spawned runs, or when the server answering `/health` reports the recorded pid; the pid file is cleared when the child exits.
    The rule is a tested pure helper, `isManagedServer` in `tray-core.js`.
@@ -51,5 +51,5 @@ Two real bugs were found and fixed in PR #22; the rest are low-severity hardenin
 - **Health during a load:** `status()` takes only `_lock`, never `_load_lock`, and reports `modelLoading` (#19).
 - **Memory accuracy:** after release Kokoro runs `gc.collect()` and `malloc_trim(0)` and drops the model files from the page cache, so `rssMb` and systemd's `MemoryCurrent` fall back; Piper's `totalRssMb` adds the live readers, and `lastReaderPeakRssMb` keeps short reads visible.
 - **Security:** both servers bind `127.0.0.1` by default; the origin check runs on GET, POST and OPTIONS for Kokoro and as app-wide middleware for Piper; the report escapes text and escapes `<` in its embedded JSON.
-- **Tray for a generic user:** no hard-coded user, drive or distro paths; Kokoro status is `/health` only; history is off by default; the legacy "Piper TTS Tray" entry is migrated, not duplicated.
+- **Tray for a generic user:** no hard-coded user, drive or distro paths; Kokoro status is `/health` only; history is off by default; the legacy "Piper TTS Tray" entry is migrated, not duplicated. <!-- legacy-name -->
 - **Tests:** `node --test` passes (the Piper server suite needs `servers/piper/node_modules`), and the 34 Kokoro unit tests pass.

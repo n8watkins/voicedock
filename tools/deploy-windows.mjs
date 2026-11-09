@@ -1,55 +1,62 @@
-// Deploy the built extension from this WSL repo to the Windows project folder
-// that Chrome loads unpacked. Only extension/ is synced - it's the only thing
-// that changes and the only thing Chrome reads. The servers/piper folder on
-// Windows (with its downloaded piper.exe + .onnx voices, which are gitignored
-// and live only there) is intentionally left untouched.
+// Deploy the built extension from this WSL repo to the Windows folder Chrome
+// loads unpacked: C:\Users\<you>\Extensions\voicedock. It builds the bundles,
+// then mirrors exactly the files the Chrome Web Store package ships (no React
+// sources) into that folder, removing anything that no longer ships.
 //
-//   node tools/deploy-windows.mjs
+//   npm run deploy
 //
-// Override the destination with VOICEDOCK_WINDOWS_DIR (or the older
-// PIPER_TTS_WINDOWS_DIR), or the user with PIPER_TTS_WINDOWS_USER. After it runs, reload the extension at
-// chrome://extensions to pick up the changes.
-import { execFileSync } from 'child_process';
-import { existsSync } from 'fs';
-import { dirname, join, resolve } from 'path';
-import { fileURLToPath } from 'url';
+// Override the folder with VOICEDOCK_WINDOWS_DIR, or the Windows user with
+// VOICEDOCK_WINDOWS_USER (the older PIPER_TTS_* names still work for one // legacy-name
+// release). After it runs, reload VoiceDock at chrome://extensions.
+//
+// An unpacked extension's ID, and with it the saved profiles, comes from its
+// folder path, so keep deploying to the folder Chrome already loads.
+import { execFileSync } from 'node:child_process';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { dirname, join, relative, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { envSetting } from './env.mjs';
+import { EXTENSION_DIR, storeFiles } from './package-store.mjs';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const windowsUser = process.env.PIPER_TTS_WINDOWS_USER || 'natha';
-const toolsDir = `/mnt/c/Users/${windowsUser}/Projects/Tools`;
+const windowsUser = envSetting('WINDOWS_USER') || 'natha';
+const dest = envSetting('WINDOWS_DIR') || `/mnt/c/Users/${windowsUser}/Extensions/voicedock`;
 
-// Destination: explicit override wins; otherwise the piper-tts folder Chrome
-// already loads, then a voicedock clone, then the original local-tts-reader.
-// piper-tts comes first on purpose: an unpacked extension's ID (and with it
-// every saved profile) is derived from its folder path, so moving Chrome to a
-// new folder would start from empty settings. See UPDATE_WINDOWS_SERVER.md.
-const dest = process.env.VOICEDOCK_WINDOWS_DIR || process.env.PIPER_TTS_WINDOWS_DIR ||
-  ['piper-tts', 'voicedock', 'local-tts-reader'].map((name) => join(toolsDir, name)).find(existsSync);
-
-if (!dest || !existsSync(dest)) {
-  console.error('Windows project folder not found. Set VOICEDOCK_WINDOWS_DIR to its path.');
+if (!existsSync(dest) || !existsSync(join(dest, 'manifest.json'))) {
+  console.error(`${dest} is not an unpacked VoiceDock folder (no manifest.json).`);
+  console.error('Point VOICEDOCK_WINDOWS_DIR at the folder Chrome loads (chrome://extensions, "Details", "Source").');
   process.exit(1);
 }
-if (!existsSync(join(dest, 'extension'))) {
-  console.error(`No extension/ folder under ${dest}.`);
-  process.exit(1);
-}
-
-// rsync needs trailing slashes to copy directory *contents* (and --delete to
-// drop files removed from the repo). extension/ holds no gitignored binaries,
-// so a full mirror is safe.
-const srcExt = join(repoRoot, 'extension') + '/';
-const destExt = join(dest, 'extension') + '/';
 
 console.log('Building bundles…');
 execFileSync('npm', ['run', 'build'], { cwd: repoRoot, stdio: 'inherit' });
 
-console.log(`Syncing extension/ → ${destExt}`);
-execFileSync('rsync', ['-a', '--delete', srcExt, destExt], { stdio: 'inherit' });
+const files = storeFiles();
+const shipped = new Set(files);
+for (const file of files) {
+  const to = join(dest, file);
+  mkdirSync(dirname(to), { recursive: true });
+  copyFileSync(join(EXTENSION_DIR, file), to);
+}
 
-const version = JSON.parse(
-  execFileSync('cat', [join(repoRoot, 'extension', 'manifest.json')]).toString()
-).version;
+// Remove what no longer ships (a deleted file, the old React sources), then
+// any folder left empty.
+function walk(dir) {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const full = join(dir, entry.name);
+    return entry.isDirectory() ? walk(full) : [full];
+  });
+}
+let removed = 0;
+for (const full of walk(dest)) {
+  const rel = relative(dest, full).split(sep).join('/');
+  if (!shipped.has(rel)) { rmSync(full); removed += 1; }
+}
+for (const dir of readdirSync(dest, { withFileTypes: true }).filter((e) => e.isDirectory())) {
+  const full = join(dest, dir.name);
+  if (statSync(full).isDirectory() && walk(full).length === 0) rmSync(full, { recursive: true });
+}
 
-console.log(`\n✓ Extension v${version} synced to ${dest}.`);
+const { version } = JSON.parse(readFileSync(join(EXTENSION_DIR, 'manifest.json'), 'utf8'));
+console.log(`\n✓ VoiceDock ${version}: ${files.length} files synced to ${dest}${removed ? `, ${removed} removed` : ''}.`);
 console.log('  Reload it at chrome://extensions to pick up the changes.');

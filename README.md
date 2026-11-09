@@ -14,8 +14,8 @@ VoiceDock has two local engines, chosen per profile:
 The Basic voice (Chrome's built-in speech) is the zero-setup choice and the automatic fallback when an engine is offline, so the extension works instantly with no server at all.
 Set up Piper for natural local voices, and add Kokoro only if you want its voices and have the memory to spare.
 
-> VoiceDock was called **Piper TTS** up to version 1.0.17.
-> The GitHub repo was `n8watkins/piper-tts` (the old URL redirects), and settings saved by Piper TTS carry over automatically.
+> VoiceDock had an older name up to version 1.0.17.
+> The GitHub repo was `n8watkins/piper-tts` (the old URL redirects), and settings saved by those versions carry over automatically. <!-- legacy-name -->
 > See [docs/NAMING.md](docs/NAMING.md) for the name and what a rename touches.
 
 <img src="extension/icons/icon128.png" alt="VoiceDock extension icon" width="96">
@@ -35,7 +35,7 @@ Set up Piper for natural local voices, and add Kokoro only if you want its voice
 <img src="screenshots/options-credits.png" alt="Credits tab" width="560">
 
 `npm run screenshots` regenerates these from WSL with headless Windows Chrome (no window opens) and mocked servers (see `tools/capture-screenshots.mjs`).
-If your Windows account, Chrome path, or Windows Node path differs from the defaults, set `PIPER_TTS_WINDOWS_USER`, `PIPER_TTS_CHROME_PATH` or `PIPER_TTS_WINDOWS_NODE`.
+If your Windows account, Chrome path, or Windows Node path differs from the defaults, set `VOICEDOCK_WINDOWS_USER`, `VOICEDOCK_CHROME_PATH` or `VOICEDOCK_WINDOWS_NODE`.
 
 ---
 
@@ -74,16 +74,16 @@ npm install                    # installs deps and enables the git hooks
 npm ci --prefix servers/piper  # Piper server deps (its contract tests need them)
 npm run build                  # bundle extension/src into extension/dist
 npm test                       # extension + Piper server tests (node --test) and Kokoro server tests (python3 unittest)
-npm run deploy                 # copy the built extension/ to the Windows folder Chrome loads
+npm run deploy                 # copy the built extension to the Windows folder Chrome loads
 ```
 
 `npm run memory-report -- <csv dir>` builds the memory report (one self-contained HTML file with 24-hour and 7-day timelines per engine) from the memory CSV files the trays record; add `--open` to open it.
 See [Memory history and reports](#memory-history-and-reports).
 
-`npm run deploy` mirrors `extension/` into the Windows folder that Chrome loads unpacked.
-It looks for `…/Projects/Tools/piper-tts`, then `…/voicedock`, then `…/local-tts-reader`; override with `VOICEDOCK_WINDOWS_DIR`.
+`npm run deploy` builds the bundles and mirrors the files the store package ships into the Windows folder that Chrome loads unpacked, `C:\Users\<you>\Extensions\voicedock`.
+Override the folder with `VOICEDOCK_WINDOWS_DIR`, or the Windows user with `VOICEDOCK_WINDOWS_USER`.
 An unpacked extension's ID, and so its saved settings, depends on its folder path, so keep Chrome on the folder it already loads.
-It only touches `extension/`, never a server or its downloaded binaries and voices.
+It never touches a server or its downloaded binaries and voices.
 Reload at `chrome://extensions` afterward.
 
 The committed `extension/dist` bundles must always match `extension/src`.

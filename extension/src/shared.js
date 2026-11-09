@@ -93,7 +93,7 @@ export function defaultProfile() {
 // what to remove. Safe to run any number of times (idempotent), from the
 // service worker on install/update/startup and from the UI pages on load.
 //
-// v1 (Piper TTS <= 1.0.x) → v2 (VoiceDock 1.1):
+// v1 (<= 1.0.x, before the VoiceDock name) → v2 (VoiceDock 1.1):
 //   fallbackToBrowser    → fallback
 //   profiles[].voice     → profiles[].engine + voice (engine inferred)
 //   profile "Default"    → "Profile 1" (the seed profile's old name)
