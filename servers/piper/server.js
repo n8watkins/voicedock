@@ -40,7 +40,8 @@ const { createKokoroLauncher, KOKORO_HOST, KOKORO_PORT } = require("./kokoro");
 const { createPocketLauncher, MAX_TEXT_CHARS: POCKET_MAX_CHARS } = require("./pocket");
 const { Readable } = require("stream");
 const { createHub } = require("./hub/engines");
-const { createControlPlane, appVersion } = require("./hub/n8tray");
+const { createControlPlane, appVersion, runDir } = require("./hub/n8tray");
+const { createPressureMonitor, hostLeaseFresh } = require("./hub/pressure");
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 const { PORT, HOST, isLoopbackHost, exposureWarning } = require("./config"); // shared with the tray so they agree
@@ -115,7 +116,13 @@ function stopServer(reason) {
   app.locals.hub.stopAll(reason);
   process.exit(0);
 }
+// Free memory, read by the hub itself until N8 Tray pushes a pressure level.
+app.locals.memory = createPressureMonitor({
+  hub: app.locals.hub,
+  leaseFresh: () => hostLeaseFresh({ runDir: runDir() }),
+});
 app.locals.n8 = createControlPlane({
+  onPressurePushed: () => app.locals.memory.pushed(),
   hub: app.locals.hub,
   kokoro,
   pocket,
@@ -188,7 +195,7 @@ app.get("/health", (req, res) => {
 // ─── Engines ─────────────────────────────────────────────────────────────────
 app.get("/engines", async (_req, res) => {
   res.set("Cache-Control", "no-store");
-  res.json(await app.locals.hub.list());
+  res.json({ ...(await app.locals.hub.list()), memory: app.locals.memory.doc() });
 });
 
 app.get("/hub/events", (_req, res) => {
@@ -402,7 +409,10 @@ async function kokoroTts(req, res) {
     res.setHeader("Cache-Control", "no-store");
     res.end(audio);
   } catch (err) {
-    if (!res.headersSent && !ctrl.signal.aborted) {
+    const capped = hub.capStopMessage("kokoro");
+    if (!res.headersSent && capped) {
+      res.status(503).json({ error: `${capped}.`, reason: "failed", details: err.message });
+    } else if (!res.headersSent && !ctrl.signal.aborted) {
       res.status(502).json({ error: "Kokoro did not answer.", reason: "failed", details: err.message });
     } else if (!res.headersSent) {
       res.status(504).json({ error: "Kokoro took too long.", reason: "failed" });
@@ -449,7 +459,10 @@ async function pocketTts(req, res) {
       body.pipe(res);
     });
   } catch (err) {
-    if (!res.headersSent && !ctrl.signal.aborted) {
+    const capped = hub.capStopMessage("pocket");
+    if (!res.headersSent && capped) {
+      res.status(503).json({ error: `${capped}.`, reason: "failed", details: err.message });
+    } else if (!res.headersSent && !ctrl.signal.aborted) {
       res.status(502).json({ error: "Pocket TTS did not answer.", reason: "failed", details: err.message });
     } else if (!res.headersSent) {
       res.status(504).json({ error: "Pocket TTS took too long.", reason: "failed" });
@@ -661,6 +674,7 @@ async function start() {
   }
   app.locals.n8.startSampling();
   app.locals.hub.start();
+  app.locals.memory.start();
   return app.listen(PORT, HOST, () => {
     console.log(`\n🔊 VoiceDock hub v${version}${MANAGED ? " (started by N8 Tray)" : ""}`);
     console.log(`   Running at http://${HOST}:${PORT}`);

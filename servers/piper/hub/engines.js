@@ -16,9 +16,14 @@
  *   (POST /presence), N minutes without one (default 5) stop every heavy
  *   engine that is not speaking. A hub that never got a heartbeat (an older
  *   extension) leaves that to the idle timers.
- * - Memory pressure (pushed by N8 Tray, POST /n8/v2/pressure): attention
- *   releases idle models and refuses warm-ups; problem stops every heavy
- *   engine that is not speaking and refuses to start one ("low-memory").
+ * - Memory pressure (pushed by N8 Tray, POST /n8/v2/pressure, or read by the
+ *   hub itself without N8 Tray, hub/pressure.js): attention releases idle
+ *   models and refuses warm-ups; problem stops every heavy engine that is not
+ *   speaking and refuses to start one ("low-memory").
+ * - Memory caps per engine (plan 5.6): over its soft cap (Kokoro 900 MB,
+ *   Pocket TTS 1400 MB) for 30 s, an engine is stopped at the next moment it
+ *   is not speaking, and the next read starts it fresh; over its hard cap
+ *   (1.5 times the soft one) it is stopped at once, even mid-read.
  *
  * The hub works the same with or without N8 Tray. Engines report their state
  * in the contract's vocabulary (ready, idle, starting, failed, not-installed,
@@ -29,16 +34,26 @@ const PRESSURE_LEVELS = ["ok", "attention", "problem"];
 const DEFAULT_NO_CLIENT_STOP_SECONDS = 300;
 const PRESENCE_CLIENT_WINDOW_MS = 5 * 60_000;
 const MAX_EVENTS = 100;
+const CAP_SUSTAIN_MS = 30_000;
+const HARD_CAP_FACTOR = 1.5;
+
+// An engine's soft cap in MB: VOICEDOCK_<ID>_SOFT_CAP_MB overrides the
+// default; 0 turns its caps off.
+function softCapMb(id, env = process.env) {
+  const raw = env[`VOICEDOCK_${id.toUpperCase()}_SOFT_CAP_MB`];
+  const n = Number(raw);
+  return raw != null && String(raw).trim() !== "" && Number.isFinite(n) && n >= 0 ? n : DESCRIPTORS[id]?.softCapMb ?? 0;
+}
 
 // What first audio costs when nothing has been measured yet on this machine
 // (plan section 5.4). Replaced by the measured figures as soon as there are
 // some: lastStartMs (process up to /health) plus the model load.
 const DESCRIPTORS = {
   piper: { id: "piper", name: "Piper", heavy: false, coldStartEstimateMs: 1000, budgetMs: 2000 },
-  kokoro: { id: "kokoro", name: "Kokoro", heavy: true, canUnload: true, coldStartEstimateMs: 5000, budgetMs: 8000 },
+  kokoro: { id: "kokoro", name: "Kokoro", heavy: true, canUnload: true, coldStartEstimateMs: 5000, budgetMs: 8000, softCapMb: 900 },
   // Pocket TTS can't release its model, so "unload" stops it: it starts
   // again in about a second.
-  pocket: { id: "pocket", name: "Pocket TTS", heavy: true, canUnload: false, coldStartEstimateMs: 2000, budgetMs: 15000 },
+  pocket: { id: "pocket", name: "Pocket TTS", heavy: true, canUnload: false, coldStartEstimateMs: 2000, budgetMs: 15000, softCapMb: 1400 },
 };
 const ENGINE_ORDER = ["piper", "kokoro", "pocket"];
 
@@ -83,6 +98,7 @@ function createHub({
   now = Date.now,
   log = console,
   checkIntervalMs = 30_000,
+  capIntervalMs = 5_000,
 }) {
   const heavy = pocket ? { kokoro, pocket } : { kokoro };
   const inflight = { piper: 0, kokoro: 0, pocket: 0 };
@@ -95,6 +111,9 @@ function createHub({
   let pressure = "ok";
   let activeEngine = null;
   let timer = null;
+  let capTimer = null;
+  const overSince = {};          // engine -> when it went over its soft cap
+  const capStops = {};           // engine -> { at, message } of its last cap stop
   const stopAfterNoClientMs = noClientStopSeconds(env) * 1000;
 
   function event(type, engine, data = {}) {
@@ -262,12 +281,12 @@ function createHub({
   }
 
   // ─── Memory pressure ─────────────────────────────────────────────────────
-  async function setPressure(level) {
+  async function setPressure(level, detail = {}) {
     if (!PRESSURE_LEVELS.includes(level)) throw codedError("invalid", `Unknown pressure level: ${level}`);
     const previous = pressure;
     pressure = level;
     if (level !== previous) {
-      event("pressure", null, { level });
+      event("pressure", null, { level, ...detail });
       log.log?.(`[hub] memory pressure: ${level}`);
     }
     for (const id of Object.keys(heavy)) {
@@ -280,6 +299,51 @@ function createHub({
       else if (status.modelLoaded && (await launcher.unload())) event("unload", id, { reason: "memory pressure" });
     }
     return pressure;
+  }
+
+  // ─── Memory caps per engine ──────────────────────────────────────────────
+  function caps(id) {
+    const soft = softCapMb(id, env);
+    return soft > 0 ? { softMb: soft, hardMb: Math.round(soft * HARD_CAP_FACTOR) } : null;
+  }
+
+  async function checkCaps() {
+    const stopped = [];
+    for (const [id, launcher] of Object.entries(heavy)) {
+      const limit = caps(id);
+      if (!limit || !launcher.owned()) { overSince[id] = null; continue; }
+      const status = await launcher.status();
+      const mb = status?.rssMb;
+      if (!Number.isFinite(mb)) continue;
+      const name = DESCRIPTORS[id].name;
+      if (mb > limit.hardMb) {
+        const message = `${name} used ${Math.round(mb)} MB, over its ${limit.hardMb} MB limit, so VoiceDock stopped it`;
+        capStops[id] = { at: now(), message };
+        overSince[id] = null;
+        if (await stopEngine(id, `memory cap: ${Math.round(mb)} MB, over the ${limit.hardMb} MB limit`)) {
+          event("cap", id, { mb: Math.round(mb), capMb: limit.hardMb, hard: true });
+          log.error?.(`[hub] ${message}`);
+          stopped.push(id);
+        }
+        continue;
+      }
+      if (mb <= limit.softMb) { overSince[id] = null; continue; }
+      overSince[id] ??= now();
+      if (now() - overSince[id] < CAP_SUSTAIN_MS || speaking(id, status)) continue;
+      overSince[id] = null;
+      if (await stopEngine(id, `memory cap: over ${limit.softMb} MB for 30 s; the next read starts it fresh`)) {
+        event("cap", id, { mb: Math.round(mb), capMb: limit.softMb, hard: false });
+        stopped.push(id);
+      }
+    }
+    return stopped;
+  }
+
+  // The hard cap's message, when it stopped this engine in the last few
+  // seconds (so a read it cut off can say why).
+  function capStopMessage(id, withinMs = 10_000) {
+    const c = capStops[id];
+    return c && now() - c.at < withinMs ? c.message : null;
   }
 
   // ─── The no-browser rule ─────────────────────────────────────────────────
@@ -301,11 +365,14 @@ function createHub({
     if (timer) return;
     timer = setInterval(() => { tick().catch(() => {}); }, checkIntervalMs);
     if (timer.unref) timer.unref();
+    capTimer = setInterval(() => { checkCaps().catch(() => {}); }, capIntervalMs);
+    if (capTimer.unref) capTimer.unref();
   }
 
   function stopTimers() {
     clearInterval(timer);
-    timer = null;
+    clearInterval(capTimer);
+    timer = capTimer = null;
   }
 
   function stopAll(reason) {
@@ -397,6 +464,7 @@ function createHub({
       setup: st.setup,
       lastError: st.lastError,
       stopsInSeconds: stopsIn,
+      caps: caps("kokoro"),
       coldStart: {
         estimateMs: expectedMs,
         budgetMs: d.budgetMs,
@@ -447,6 +515,7 @@ function createHub({
       detail,
       setup: st.setup,
       lastError: st.lastError,
+      caps: caps("pocket"),
       stopsInSeconds: st.state === "ready" && !st.speaking && st.stopAfterSeconds > 0 ? Math.max(0, st.stopAfterSeconds - (st.idleSeconds || 0)) : null,
       coldStart: { estimateMs: expectedMs, budgetMs: d.budgetMs, processMs: st.lastStartMs, modelLoadMs: null },
     };
@@ -469,6 +538,7 @@ function createHub({
 
   return {
     list, ensure, warm, beginRead, endRead, presence, activity, presenceDoc, setPressure, tick, yieldFor, event,
+    checkCaps, capStopMessage, caps,
     start, stopTimers, stopAll, stopEngine, expectedColdMs,
     events: () => events.slice(),
     pressure: () => pressure,
@@ -477,4 +547,4 @@ function createHub({
   };
 }
 
-module.exports = { createHub, noClientStopSeconds, DESCRIPTORS, ENGINE_ORDER, PRESSURE_LEVELS };
+module.exports = { createHub, noClientStopSeconds, softCapMb, DESCRIPTORS, ENGINE_ORDER, PRESSURE_LEVELS };
