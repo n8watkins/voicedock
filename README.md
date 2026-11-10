@@ -329,20 +329,23 @@ Switch profiles with the pills in the popup, or use **Read as…** in the right-
 
 ## Engines compared
 
-| | Basic voice | Piper | Kokoro |
-| --- | --- | --- | --- |
-| Setup | None | `npm run setup` (Node.js) | Optional: uv, then `setup.ps1` or `setup.sh` |
-| Download | None | Piper plus about 60-120 MB per voice | 338 MB, once |
-| RAM | None extra | About 20 MB idle, plus 60-150 MB while reading | About 45 MB idle, 300-700 MB while the model is loaded |
-| Needs a local server | No | Yes (port 7477) | Yes (port 7478) |
-| Sends text to a hosted API | No | No | No |
-| Voices | Your OS voices | Downloaded `.onnx` voices (8 installed here) | 54 built-in voices, 9 languages |
-| Sound | Robotic | Good | Most natural |
-| Warm latency, one sentence (measured here) | Instant | about 1.15 s | about 1.5 s |
-| Manage voices in the app | No | Install, test, favorite, delete | Test, favorite |
-| Speed control | Yes | Yes, live | Yes, live |
-| Volume | Up to the browser max | Up to 2× gain | Up to 2× gain |
-| When the engine is down | Always available | Falls back to the Basic voice (if on) | Falls back to the Basic voice (if on) |
+Measured on a Windows 11 PC (Ryzen 7 9700X) through VoiceDock's hub on 2026-11-09, with the same five sentences for each engine.
+
+| | Basic voice | Piper | Kokoro | Pocket TTS |
+| --- | --- | --- | --- | --- |
+| Setup | None | `npm run setup` (Node.js) | Optional: uv, then `setup.ps1` or `setup.sh` | Optional: `node engines.js install pocket`, then `model pocket` |
+| Download | None | Piper plus about 60-120 MB per voice | 338 MB, once | 230 MB, then about 6 MB per extra voice on first use |
+| RAM | None extra | About 20 MB idle, plus 60-150 MB while reading | About 45 MB idle, 300-700 MB while the model is loaded | None idle, 250-340 MB while running (measured here) |
+| Needs a local server | No | Yes (port 7477) | Yes (port 7478) | Yes (the hub on 7477; its own private port) |
+| Sends text to a hosted API | No | No | No | No |
+| Voices | Your OS voices | Downloaded `.onnx` voices (8 installed here) | 54 built-in voices, 9 languages | 26 built-in English voices |
+| Sound | Robotic | Good | Most natural | Natural |
+| Warm latency, one sentence (measured here) | Instant | 0.6-0.7 s | 0.6-0.75 s | 0.22-0.28 s, audio streams as it is made |
+| First audio from cold (measured here) | Instant | 0.6-0.7 s | about 3 s | 0.5-0.65 s |
+| Manage voices in the app | No | Install, test, favorite, delete | Test, favorite | Test, favorite |
+| Speed control | Yes | Yes, live | Yes, live | Yes, live |
+| Volume | Up to the browser max | Up to 2× gain | Up to 2× gain | Up to 2× gain |
+| When the engine is down | Always available | Falls back to the Basic voice (if on) | Falls back to the Basic voice (if on) | Falls back to the Basic voice (if on) |
 
 ---
 
