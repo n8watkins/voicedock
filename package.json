@@ -34,7 +34,7 @@
     "@playwright/test": "1.65.0",
     "esbuild": "^0.28.0",
     "postject": "^1.0.0-alpha.6",
-    "release-kit": "github:n8watkins/release-kit#v2.9.0"
+    "release-kit": "github:n8watkins/release-kit#v2.10.1"
   },
   "engines": {
     "node": ">=18"
